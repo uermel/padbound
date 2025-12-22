@@ -2,25 +2,199 @@
 AKAI APC mini MK2 MIDI Controller Plugin.
 
 Hardware specifications:
-- 8x8 grid of RGB backlit pads (64 pads)
-- 9 faders (8 channel + 1 master)
-- 17 UI buttons (8 track + 8 scene launch + 1 shift)
-- RGB LED control via MIDI Note On messages
+- 8x8 grid of RGB backlit pads (64 pads, notes 0x00-0x3F)
+- 9 faders (8 channel + 1 master, CC 0x30-0x38)
+- 8 track buttons with red LEDs (notes 0x64-0x6B)
+- 8 scene launch buttons with green LEDs (notes 0x70-0x77)
+- 1 shift button (note 0x7A, no LED)
+- RGB LED control via SysEx or velocity-indexed palette
 - USB MIDI interface
 
 Control features:
-- Pads send NOTE messages and support RGB feedback
+- Pads send NOTE messages and support full RGB feedback via SysEx
 - Faders send CC messages (read-only, no motorized feedback)
 - Track/Scene buttons send NOTE messages with single-color LED feedback
-- 3 modes: Session View, Drum Mode, Note Mode (hardware switchable)
+- 3 hardware modes: Session View (CH 0-15), Drum Mode (CH 9), Note Mode (Port 1)
 
+================================================================================
+SYSEX PROTOCOL DOCUMENTATION
+================================================================================
+
+All SysEx messages use the following header format:
+    F0 47 7F 4F <cmd> <len_msb> <len_lsb> [payload...] F7
+
+Where:
+    F0          = SysEx start
+    47          = Akai manufacturer ID
+    7F          = Device ID (all devices)
+    4F          = APC mini MK2 product ID
+    <cmd>       = Command/message type identifier
+    <len_msb>   = Data length MSB (most significant 7 bits)
+    <len_lsb>   = Data length LSB (least significant 7 bits)
+    [payload]   = Command-specific data
+    F7          = SysEx end
+
+--------------------------------------------------------------------------------
+COMMAND 0x24: RGB LED COLOR LIGHTING
+--------------------------------------------------------------------------------
+Sets RGB color for one or more pads using true 8-bit RGB values.
+Each color channel (0-255) is split into MSB/LSB for MIDI 7-bit compliance.
+
+Request:
+    F0 47 7F 4F 24 <len_msb> <len_lsb> <start_pad> <end_pad> <rgb_data> F7
+
+    24              = RGB LED Color Lighting command
+    <len_msb/lsb>   = Number of data bytes (8 for single pad)
+    <start_pad>     = First pad to update (0x00-0x3F)
+    <end_pad>       = Last pad to update (0x00-0x3F)
+    <rgb_data>      = 6 bytes: [R_MSB, R_LSB, G_MSB, G_LSB, B_MSB, B_LSB]
+
+    Color format (MSB/LSB split):
+        Each 8-bit color channel is split into two 7-bit bytes:
+        MSB = (value >> 7) & 0x7F
+        LSB = value & 0x7F
+        Example: RGB(255, 128, 64) → [0x01, 0x7F, 0x01, 0x00, 0x00, 0x40]
+
+    For multiple pads with same color, set start_pad < end_pad.
+    For single pad, set start_pad = end_pad.
+
+Response: None
+
+Example (set pad 0 to red):
+    F0 47 7F 4F 24 00 08 00 00 01 7F 00 00 00 00 F7
+    |              |     |  |  |                 |
+    |  header      |len  |pads| RGB(255,0,0)     |end
+
+--------------------------------------------------------------------------------
+COMMAND 0x60: INTRODUCTION MESSAGE
+--------------------------------------------------------------------------------
+Sent to initialize the device and inform firmware of application version.
+Device responds with current fader positions.
+
+Request:
+    F0 47 7F 4F 60 00 04 <app_id> <ver_hi> <ver_lo> <bugfix> F7
+
+    60          = Introduction message
+    00 04       = 4 bytes of data
+    <app_id>    = Application/configuration identifier (0x00)
+    <ver_hi>    = Application version major
+    <ver_lo>    = Application version minor
+    <bugfix>    = Application bugfix level
+
+Response:
+    F0 47 7F 4F 61 00 09 <fader1> <fader2> ... <fader9> F7
+
+    61          = Introduction response
+    00 09       = 9 bytes of fader data
+    <faderN>    = Current position of fader N (0-127)
+
+================================================================================
+LED CONTROL VIA MIDI NOTE ON (Alternative to SysEx)
+================================================================================
+
+RGB pads can also be controlled via Note On messages with a 128-color palette.
+The MIDI channel determines LED behavior (brightness/blink/pulse).
+
+Message format: 9X nn vv
+    X   = MIDI channel (determines behavior, see below)
+    nn  = Pad note number (0x00-0x3F)
+    vv  = Velocity (color index from 128-color palette)
+
+LED Behavior by MIDI Channel:
+    Channel 0  (0x90) = 10% brightness
+    Channel 1  (0x91) = 25% brightness
+    Channel 2  (0x92) = 50% brightness
+    Channel 3  (0x93) = 65% brightness
+    Channel 4  (0x94) = 75% brightness
+    Channel 5  (0x95) = 90% brightness
+    Channel 6  (0x96) = 100% brightness (default)
+    Channel 7  (0x97) = Pulsing 1/16 note
+    Channel 8  (0x98) = Pulsing 1/8 note
+    Channel 9  (0x99) = Pulsing 1/4 note
+    Channel 10 (0x9A) = Pulsing 1/2 note
+    Channel 11 (0x9B) = Blinking 1/24 note
+    Channel 12 (0x9C) = Blinking 1/16 note
+    Channel 13 (0x9D) = Blinking 1/8 note
+    Channel 14 (0x9E) = Blinking 1/4 note
+    Channel 15 (0x9F) = Blinking 1/2 note
+
+Common velocity-to-color mappings:
+    0   = Black/Off      21  = Green         45  = Blue
+    3   = White          37  = Cyan          49  = Purple
+    5   = Red            53  = Magenta       56  = Pink
+    9   = Orange         13  = Yellow
+
+--------------------------------------------------------------------------------
+SINGLE LED CONTROL (Track/Scene Buttons)
+--------------------------------------------------------------------------------
+Track and Scene buttons have single-color LEDs (red/green respectively).
+Always use MIDI Channel 0 for single LED control.
+
+Message format: 90 nn vv
+    nn  = Button note number (0x64-0x6B for track, 0x70-0x77 for scene)
+    vv  = LED state:
+          0x00 = Off
+          0x01 = On (or 0x03-0x7F)
+          0x02 = Blink
+
+================================================================================
+MIDI INPUT MESSAGE FORMATS
+================================================================================
+
+PAD MESSAGES (Session View - Default):
+    Note On:  9n pp vv    (n=channel 0-15, pp=pad 0x00-0x3F, vv=velocity)
+    Note Off: 8n pp 00    (n=channel 0-15, pp=pad 0x00-0x3F)
+
+PAD MESSAGES (Drum Mode):
+    Note On:  99 pp vv    (channel 9, pp=pad 0x00-0x3F, vv=velocity)
+    Note Off: 89 pp 00    (channel 9, pp=pad 0x00-0x3F)
+
+FADER MESSAGES:
+    CC:       B0 cc vv    (channel 0, cc=0x30-0x38, vv=0-127)
+
+TRACK BUTTON MESSAGES:
+    Note On:  90 bb vv    (channel 0, bb=0x64-0x6B, vv=velocity)
+    Note Off: 80 bb 00    (channel 0, bb=0x64-0x6B)
+
+SCENE BUTTON MESSAGES:
+    Note On:  90 bb vv    (channel 0, bb=0x70-0x77, vv=velocity)
+    Note Off: 80 bb 00    (channel 0, bb=0x70-0x77)
+
+SHIFT BUTTON:
+    Note On:  90 7A vv    (channel 0, note 0x7A)
+    Note Off: 80 7A 00    (channel 0, note 0x7A)
+
+================================================================================
+CONTROL MAPPING
+================================================================================
+
+Pad Matrix (8x8 grid, bottom-left origin):
+    Row 7: 0x38 0x39 0x3A 0x3B 0x3C 0x3D 0x3E 0x3F  (top)
+    Row 6: 0x30 0x31 0x32 0x33 0x34 0x35 0x36 0x37
+    Row 5: 0x28 0x29 0x2A 0x2B 0x2C 0x2D 0x2E 0x2F
+    Row 4: 0x20 0x21 0x22 0x23 0x24 0x25 0x26 0x27
+    Row 3: 0x18 0x19 0x1A 0x1B 0x1C 0x1D 0x1E 0x1F
+    Row 2: 0x10 0x11 0x12 0x13 0x14 0x15 0x16 0x17
+    Row 1: 0x08 0x09 0x0A 0x0B 0x0C 0x0D 0x0E 0x0F
+    Row 0: 0x00 0x01 0x02 0x03 0x04 0x05 0x06 0x07  (bottom)
+
+Track Buttons:  0x64 0x65 0x66 0x67 0x68 0x69 0x6A 0x6B (buttons 1-8)
+Scene Buttons:  0x70 0x71 0x72 0x73 0x74 0x75 0x76 0x77 (buttons 1-8)
+Shift Button:   0x7A
+
+Faders (CC numbers): 0x30 0x31 0x32 0x33 0x34 0x35 0x36 0x37 0x38
+                     (faders 1-8)                      (master)
+
+================================================================================
 References:
-- Protocol documentation: protocols/akai_apc_mini/APC mini mk2 - Communication Protocol - v1.0.pdf
+- Protocol documentation: APC mini mk2 - Communication Protocol - v1.0.pdf
+================================================================================
 """
 
 from typing import Callable, Optional
 
 import mido
+from pydantic import BaseModel, Field
 
 from ..plugin import (
     ControllerPlugin,
@@ -34,8 +208,124 @@ from ..controls import (
     ControllerCapabilities,
 )
 from ..logging_config import get_logger
+from ..utils import RGBColor
 
 logger = get_logger(__name__)
+
+
+class APCminiMK2RGBColor(RGBColor):
+    """RGB color with APC mini MK2-specific SysEx byte conversion methods.
+
+    Extends base RGBColor with methods for converting to the byte formats
+    required by the APC mini MK2's SysEx protocol.
+    """
+
+    def to_sysex_bytes_msb_lsb(self) -> list[int]:
+        """Convert to MSB/LSB format for SysEx RGB LED command.
+
+        Each 8-bit color channel (0-255) is split into two 7-bit bytes:
+        MSB = (value >> 7) & 0x7F
+        LSB = value & 0x7F
+
+        Returns 6 bytes: [R_MSB, R_LSB, G_MSB, G_LSB, B_MSB, B_LSB]
+        """
+        result = []
+        for value in (self.r, self.g, self.b):
+            msb = (value >> 7) & 0x7F
+            lsb = value & 0x7F
+            result.extend([msb, lsb])
+        return result
+
+
+class APCminiMK2PadRGBUpdate(BaseModel):
+    """RGB LED update for APC mini MK2 pads (0x24 command).
+
+    Can update a single pad or a range of consecutive pads with the same color.
+    Uses SysEx command 0x24 (RGB LED Color Lighting) with MSB/LSB color encoding.
+    """
+
+    start_pad: int = Field(ge=0, le=0x3F, description="Start pad note (0x00-0x3F)")
+    end_pad: int = Field(ge=0, le=0x3F, description="End pad note (0x00-0x3F)")
+    color: APCminiMK2RGBColor = Field(description="RGB color to set")
+
+    def to_sysex_message(self) -> mido.Message:
+        """Build SysEx message for RGB LED update.
+
+        Format: F0 47 7F 4F 24 <len MSB> <len LSB> <start> <end> <RGB 6 bytes> F7
+        """
+        rgb_bytes = self.color.to_sysex_bytes_msb_lsb()
+        data_bytes = [self.start_pad, self.end_pad] + rgb_bytes
+        data_len = len(data_bytes)
+
+        sysex_data = [
+            0x47,  # Akai manufacturer
+            0x7F,  # All devices
+            0x4F,  # APC mini MK2 product ID
+            0x24,  # RGB LED command
+            (data_len >> 7) & 0x7F,  # Length MSB
+            data_len & 0x7F,          # Length LSB
+        ] + data_bytes
+
+        return mido.Message('sysex', data=sysex_data)
+
+
+class APCminiMK2IntroRequest(BaseModel):
+    """Introduction message to APC mini MK2 (0x60 command).
+
+    Sent on startup to initialize device and request fader positions.
+    """
+
+    app_id: int = Field(default=0x00, ge=0, le=0x7F, description="Application ID")
+    version_major: int = Field(default=0x01, ge=0, le=0x7F, description="Version major")
+    version_minor: int = Field(default=0x00, ge=0, le=0x7F, description="Version minor")
+    version_bugfix: int = Field(default=0x00, ge=0, le=0x7F, description="Version bugfix")
+
+    def to_sysex_message(self) -> mido.Message:
+        """Build SysEx message for introduction request.
+
+        Format: F0 47 7F 4F 60 00 04 <app_id> <ver_hi> <ver_lo> <bugfix> F7
+        """
+        sysex_data = [
+            0x47,  # Akai manufacturer
+            0x7F,  # All devices
+            0x4F,  # APC mini MK2 product ID
+            0x60,  # Introduction command
+            0x00, 0x04,  # Length: 4 bytes
+            self.app_id,
+            self.version_major,
+            self.version_minor,
+            self.version_bugfix,
+        ]
+        return mido.Message('sysex', data=sysex_data)
+
+
+class APCminiMK2IntroResponse(BaseModel):
+    """Introduction response from APC mini MK2 (0x61 command).
+
+    Contains current positions of all 9 faders.
+    """
+
+    fader_positions: list[int] = Field(min_length=9, max_length=9, description="Fader positions (0-127)")
+
+    @classmethod
+    def from_sysex_data(cls, data: tuple | list) -> Optional["APCminiMK2IntroResponse"]:
+        """Parse introduction response from SysEx data.
+
+        Expected format: 47 7F 4F 61 00 09 <fader1>...<fader9>
+
+        Args:
+            data: SysEx data bytes (without F0/F7)
+
+        Returns:
+            APCminiMK2IntroResponse if valid, None otherwise
+        """
+        data = list(data)
+        # Validate header: manufacturer (47), device (7F), product (4F), response cmd (61)
+        if (len(data) >= 15 and
+            data[0] == 0x47 and data[2] == 0x4F and data[3] == 0x61):
+            fader_positions = data[6:15]  # 9 fader values after header
+            return cls(fader_positions=fader_positions)
+        return None
 
 
 class AkaiAPCminiMK2Plugin(ControllerPlugin):
@@ -43,12 +333,12 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
     AKAI APC mini MK2 plugin with RGB pad grid and faders.
 
     Features:
-    - 8x8 RGB pad grid (64 pads total) with velocity-indexed color palette
+    - 8x8 RGB pad grid (64 pads total) with true RGB color support via SysEx
     - 9 faders (continuous controls, read-only)
     - 8 track buttons with red LED feedback
     - 8 scene launch buttons with green LED feedback
     - 1 shift button (no LED)
-    - RGB LED control with brightness/blink/pulse modes
+    - RGB LED control via SysEx command 0x24 (any RGB color)
     """
 
     # Hardware configuration
@@ -71,7 +361,15 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
     # Faders: CC numbers
     FADER_START_CC = 0x30  # Faders 1-9 (48-56)
 
-    # RGB LED behavior - MIDI channel determines mode
+    # SysEx configuration
+    SYSEX_MANUFACTURER = 0x47  # Akai
+    SYSEX_DEVICE_ID = 0x7F     # All devices
+    SYSEX_PRODUCT_ID = 0x4F    # APC mini MK2
+    SYSEX_RGB_LED_CMD = 0x24   # RGB LED Color Lighting command
+    SYSEX_INTRO_CMD = 0x60     # Introduction message command
+    SYSEX_INTRO_RESPONSE = 0x61  # Introduction response command
+
+    # RGB LED behavior - MIDI channel determines mode (for Note On method)
     LED_BRIGHTNESS_10 = 0x90   # Channel 0
     LED_BRIGHTNESS_25 = 0x91   # Channel 1
     LED_BRIGHTNESS_50 = 0x92   # Channel 2
@@ -95,37 +393,13 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
     SINGLE_LED_ON = 0x01
     SINGLE_LED_BLINK = 0x02
 
-    # Velocity-to-color mapping (128 predefined colors)
-    # This is a subset of the full palette from the protocol spec
-    COLOR_PALETTE = {
-        'off': 0,
-        'black': 0,
-        'dark_grey': 1,
-        'grey': 2,
-        'white': 3,
-        'red_dim': 4,
-        'red': 5,
-        'red_dark': 6,
-        'orange_dim': 8,
-        'orange': 9,
-        'orange_dark': 10,
-        'yellow': 13,
-        'lime': 16,
-        'green': 21,
-        'green_dark': 22,
-        'cyan': 37,
-        'blue': 45,
-        'blue_dark': 46,
-        'purple': 49,
-        'magenta': 53,
-        'pink': 56,
-    }
-
     def __init__(self):
         """Initialize plugin."""
         super().__init__()
-        # Track current pad colors for state management
-        self._current_pad_colors: dict[str, int] = {}
+        # Track current pad colors for state management (RGB tuples)
+        self._current_pad_colors: dict[str, tuple[int, int, int]] = {}
+        # Track discovered fader positions
+        self._fader_positions: dict[str, int] = {}
 
     @property
     def name(self) -> str:
@@ -178,8 +452,7 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
                             requires_feedback=True,  # Device needs LED updates from library
                             supports_led=True,
                             supports_color=True,
-                            color_mode="indexed",
-                            color_palette=list(self.COLOR_PALETTE.keys()),
+                            color_mode="rgb",  # True RGB via SysEx
                             requires_discovery=False,  # Pads report state immediately
                         ),
                         display_name=f"Pad {row},{col}",
@@ -195,7 +468,7 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
                     control_type=ControlType.CONTINUOUS,
                     capabilities=ControlCapabilities(
                         supports_feedback=False,  # Faders are read-only
-                        requires_discovery=True,  # Initial position unknown
+                        requires_discovery=False,  # Discovered via introduction message
                     ),
                     min_value=0,
                     max_value=127,
@@ -366,28 +639,50 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
         self,
         send_message: Callable[[mido.Message], None],
         receive_message: Callable[[float], Optional[mido.Message]] = None
-    ) -> None:
+    ) -> dict[str, int]:
         """
         Initialize APC mini MK2 to known state.
 
-        Clears all pad LEDs and button LEDs.
+        Sends introduction message to discover fader positions, then clears
+        all pad LEDs and button LEDs using SysEx RGB commands.
 
         Args:
             send_message: Function to send MIDI messages
-            receive_message: Function to receive MIDI messages (unused)
+            receive_message: Function to receive MIDI messages with timeout
+
+        Returns:
+            Dictionary of discovered control values (fader_id -> position)
         """
         logger.info("Initializing AKAI APC mini MK2")
 
-        # Clear all pad LEDs (set to off/black)
+        discovered_values: dict[str, int] = {}
+
+        # Send introduction message and get fader positions
+        if receive_message is not None:
+            intro = APCminiMK2IntroRequest()
+            send_message(intro.to_sysex_message())
+
+            # Wait for response with timeout
+            response_msg = receive_message(1.0)  # 1 second timeout
+            if response_msg and response_msg.type == 'sysex':
+                response = APCminiMK2IntroResponse.from_sysex_data(response_msg.data)
+                if response:
+                    for i, pos in enumerate(response.fader_positions, 1):
+                        fader_id = f"fader_{i}"
+                        self._fader_positions[fader_id] = pos
+                        discovered_values[fader_id] = pos
+                    logger.info(f"Discovered fader positions: {discovered_values}")
+                else:
+                    logger.warning("Failed to parse introduction response")
+            else:
+                logger.warning("No introduction response received from device")
+
+        # Clear all pad LEDs (set to off/black) using SysEx RGB
+        black = APCminiMK2RGBColor(r=0, g=0, b=0)
         for row in range(self.PAD_ROWS):
             for col in range(self.PAD_COLS):
                 pad_note = self.PAD_START_NOTE + (row * 8) + col
-                msg = mido.Message(
-                    'note_on',
-                    channel=6,  # 100% brightness channel
-                    note=pad_note,
-                    velocity=0  # Black/off
-                )
+                msg = self._build_pad_rgb_sysex(pad_note, black)
                 send_message(msg)
 
         # Clear all track button LEDs
@@ -417,6 +712,8 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
 
         logger.info("APC mini MK2 initialization complete")
 
+        return discovered_values
+
     def shutdown(self, send_message: Callable[[mido.Message], None]) -> None:
         """
         Shutdown sequence - clear all LEDs.
@@ -434,7 +731,7 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
         Translate control state to LED feedback.
 
         For APC mini MK2:
-        - Pads: RGB LEDs via Note On with velocity-indexed colors
+        - Pads: RGB LEDs via SysEx command 0x24 (true RGB colors)
         - Track/Scene buttons: Single-color LEDs (on/off/blink)
         - Faders: No feedback (read-only)
 
@@ -447,7 +744,7 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
         """
         messages = []
 
-        # Handle pad feedback (RGB LEDs)
+        # Handle pad feedback (RGB LEDs via SysEx)
         if control_id.startswith("pad_"):
             try:
                 # Extract row and col from control_id (e.g., "pad_3_5" -> row=3, col=5)
@@ -463,19 +760,14 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
             # (on_color when is_on=True, off_color when is_on=False)
             color = state_dict.get('color', 'off')
 
-            # Map color name to velocity value
-            velocity = self._get_color_velocity(color)
+            # Parse color string to RGB
+            rgb_color = APCminiMK2RGBColor.from_string(color)
 
-            # Store current color
-            self._current_pad_colors[control_id] = velocity
+            # Store current color as RGB tuple
+            self._current_pad_colors[control_id] = (rgb_color.r, rgb_color.g, rgb_color.b)
 
-            # Send RGB LED update (100% brightness)
-            msg = mido.Message(
-                'note_on',
-                channel=6,  # 0x96 = 100% brightness
-                note=pad_note,
-                velocity=velocity
-            )
+            # Build SysEx message for RGB LED update
+            msg = self._build_pad_rgb_sysex(pad_note, rgb_color)
             messages.append(msg)
 
         # Handle track button feedback (single red LED)
@@ -521,29 +813,24 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
         # Faders and shift button have no feedback capability
         return messages
 
-    def _get_color_velocity(self, color: str) -> int:
+    def _build_pad_rgb_sysex(
+        self,
+        pad_note: int,
+        color: APCminiMK2RGBColor
+    ) -> mido.Message:
         """
-        Map color name to velocity value.
+        Build SysEx message to set a single pad's RGB color.
 
         Args:
-            color: Color name (e.g., "red", "green", "blue")
+            pad_note: Pad note number (0x00-0x3F)
+            color: RGB color to set
 
         Returns:
-            Velocity value (0-127) for the color
+            SysEx MIDI message
         """
-        color = color.lower().strip()
-
-        # Check predefined palette
-        if color in self.COLOR_PALETTE:
-            return self.COLOR_PALETTE[color]
-
-        # Try parsing hex color format
-        if color.startswith('#'):
-            # For hex colors, we'll map to the closest palette color
-            # This is a simplified approach - could be enhanced with color distance calculation
-            logger.warning(f"Hex color '{color}' not directly supported, using default")
-            return self.COLOR_PALETTE['white']
-
-        # Default to off if color not recognized
-        logger.warning(f"Unknown color '{color}', defaulting to off")
-        return self.COLOR_PALETTE['off']
+        update = APCminiMK2PadRGBUpdate(
+            start_pad=pad_note,
+            end_pad=pad_note,
+            color=color
+        )
+        return update.to_sysex_message()

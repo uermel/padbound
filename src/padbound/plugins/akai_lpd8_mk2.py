@@ -790,6 +790,9 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
         Args:
             send_message: Function to send MIDI messages
             receive_message: Function to receive MIDI messages with timeout
+
+        Returns:
+            None - no values discovered (knob discovery not supported)
         """
         logger.info("Initializing AKAI LPD8 MK2")
 
@@ -823,6 +826,8 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
             time.sleep(0.1)  # 100ms delay
 
         logger.info("LPD8 MK2 initialization complete")
+
+        return None
 
     def shutdown(self, send_message: Callable[[mido.Message], None]) -> None:
         """

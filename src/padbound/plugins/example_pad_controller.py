@@ -200,6 +200,9 @@ class ExamplePadController(ControllerPlugin):
         Args:
             send_message: Function to send MIDI messages
             receive_message: Function to receive MIDI messages (unused)
+
+        Returns:
+            None - no values discovered
         """
         # Clear all 16 pads (velocity=0 = off)
         for i in range(1, 17):
@@ -210,6 +213,8 @@ class ExamplePadController(ControllerPlugin):
         for i in range(1, 5):
             msg = mido.Message('note_on', channel=0, note=51 + i, velocity=0)
             send_message(msg)
+
+        return None
 
     def shutdown(self, send_message) -> None:
         """

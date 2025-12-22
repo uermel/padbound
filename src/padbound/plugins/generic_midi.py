@@ -142,8 +142,11 @@ class GenericMIDIController(ControllerPlugin):
         Args:
             send_message: Function to send MIDI messages
             receive_message: Function to receive MIDI messages (unused)
+
+        Returns:
+            None - no values discovered
         """
-        pass  # No initialization needed for generic controller
+        return None
 
     def shutdown(self, send_message) -> None:
         """

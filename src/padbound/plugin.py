@@ -319,7 +319,7 @@ class ControllerPlugin(ABC):
         self,
         send_message: Callable[[mido.Message], None],
         receive_message: Callable[[float], Optional[mido.Message]]
-    ) -> None:
+    ) -> Optional[dict[str, int]]:
         """
         Initialize controller to known state.
 
@@ -334,6 +334,10 @@ class ControllerPlugin(ABC):
             send_message: Function to send MIDI messages to controller
             receive_message: Function to receive MIDI message with timeout (seconds).
                 Returns None if timeout. Useful for SysEx query/response patterns.
+
+        Returns:
+            Optional dict mapping control_id to discovered value (e.g., fader positions).
+            Return None if no values were discovered.
         """
         pass
 

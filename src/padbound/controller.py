@@ -171,7 +171,15 @@ class Controller:
 
         # Call plugin init to set controller to known state
         logger.info(f"Initializing controller: {self._plugin.name}")
-        self._plugin.init(self._send_message, self._midi.receive_message)
+        discovered_values = self._plugin.init(self._send_message, self._midi.receive_message)
+
+        # Apply any discovered values (e.g., fader positions) to control state
+        if discovered_values:
+            for control_id, value in discovered_values.items():
+                control = self._state.get_control(control_id)
+                if control:
+                    self._state.update_state(control_id, value)
+                    logger.debug(f"Applied discovered value: {control_id}={value}")
 
         # Program persistent configuration (if plugin supports it)
         if self._controller_config and self._state.capabilities.supports_persistent_configuration:
