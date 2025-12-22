@@ -27,10 +27,6 @@ keywords = ["MIDI", "stateful", "interface"]
 Repository = "https://github.com/uermel/padbound.git"
 Issues = "https://github.com/uermel/padbound/issues"
 
-#[project.scripts]
-#copick = "copick.cli.cli:main"
-#make_templates = "copick.cli.make_templates:create [docs]"
-
 [project.optional-dependencies]
 test = [
     "pytest>=8.4.1",
