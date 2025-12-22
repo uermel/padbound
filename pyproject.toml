@@ -1,0 +1,121 @@
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[project]
+name = "padbound"
+requires-python = ">=3.12"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: MIT License",
+]
+dynamic = ["version"]
+dependencies = [
+    "mido>=1.3.3",
+    "pydantic>=2.12.5",
+    "rich>=13.0.0",
+]
+authors = [
+    { name = "Utz H. Ermel", email = "utz@ermel.me" },
+]
+description = "Abstract MIDI pad interface."
+readme = "README.md"
+license = { file = "LICENSE" }
+keywords = ["MIDI", "stateful", "interface"]
+
+[project.urls]
+Repository = "https://github.com/uermel/padbound.git"
+Issues = "https://github.com/uermel/padbound/issues"
+
+#[project.scripts]
+#copick = "copick.cli.cli:main"
+#make_templates = "copick.cli.make_templates:create [docs]"
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.4.1",
+    "pytest-cov>=6.2.1",
+]
+dev = [
+    "black>=25.1.0",
+    "ipython>=8.18.1",
+    "notebook>=7.4.3",
+    "pre-commit>=4.2.0",
+    "ruff>=0.12.0",
+    "textual-dev>=1.7.0",
+]
+docs = [
+    "mkdocs>=1.6.1",
+    "mkdocs-autorefs>=1.4.2",
+    "mkdocs-material>=9.6.14",
+    "mkdocstrings[python]>=0.29.1",
+]
+
+[tool.hatch.version]
+path = "src/padbound/__init__.py"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.black]
+line-length = 120
+target_version = ['py311']
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+exclude = [
+    "mkdocs.yml",
+]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",  # pycodestyle
+    "F",       # pyflakes
+    "B",       # bugbear
+    "I",       # isort
+    "N",       # pep8-naming
+    "ASYNC",   # async
+    "COM",     # commas
+    "C4",      # comprehensions
+    "DTZ",     # datetimez
+    "ISC",     # implicit-str-concat
+    "G",       # logging-format
+    "T20",     # print
+    "SIM",     # simplify
+]
+ignore = [
+    "G004",   # logging format
+    "W293",   # blank line contains whitespace
+    "B008",   # Do not perform calls in argument defaults
+    "B905",   # `zip()` without an explicit `strict=` parameter
+    "N802",   # Function name should be lowercase
+    "N805",   # First argument of a method should be named `self`
+    "N806",   # Variable in function should be lowercase
+    "N999",   # Invalid module name
+    "E501",   # line too long
+    "C408",   # rewrite empty built-ins as literals
+    "T201",   # print statements.
+    "DTZ007", # Datetime objects without timezones.
+    "DTZ005", # More datetimes without timezones.
+]
+
+[tool.ruff.lint.isort]
+known-first-party =["common"]
+
+[tool.ruff.lint.flake8-quotes]
+docstring-quotes = "double"
+
+# https://docs.pytest.org/en/latest/reference/customize.html
+[tool.pytest.ini_options]
+minversion = "6.0"
+testpaths = ["tests"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "@overload",
+    "except ImportError",
+    "pass",
+]
