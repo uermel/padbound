@@ -408,10 +408,13 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
 
     @property
     def port_patterns(self) -> list[str]:
-        """Port name patterns for auto-detection."""
+        """Port name patterns for auto-detection.
+
+        Must use 'Control' port for SysEx LED commands to work.
+        The 'Notes' port does not process SysEx messages.
+        """
         return [
-            "APC mini mk2",
-            "APC MINI MK2",
+            "APC mini mk2 Control",
         ]
 
     def get_capabilities(self) -> ControllerCapabilities:
@@ -643,8 +646,8 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
         """
         Initialize APC mini MK2 to known state.
 
-        Sends introduction message to discover fader positions, then clears
-        all pad LEDs and button LEDs using SysEx RGB commands.
+        Sends introduction message to discover fader positions and reset device.
+        The intro message causes the device to clear all LEDs internally.
 
         Args:
             send_message: Function to send MIDI messages
@@ -653,6 +656,8 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
         Returns:
             Dictionary of discovered control values (fader_id -> position)
         """
+        import time
+
         logger.info("Initializing AKAI APC mini MK2")
 
         discovered_values: dict[str, int] = {}
@@ -677,13 +682,12 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
             else:
                 logger.warning("No introduction response received from device")
 
-        # Clear all pad LEDs (set to off/black) using SysEx RGB
-        black = APCminiMK2RGBColor(r=0, g=0, b=0)
-        for row in range(self.PAD_ROWS):
-            for col in range(self.PAD_COLS):
-                pad_note = self.PAD_START_NOTE + (row * 8) + col
-                msg = self._build_pad_rgb_sysex(pad_note, black)
-                send_message(msg)
+            # Give device time to complete internal initialization after intro
+            # The intro message causes async LED reset which must complete
+            # before we can send initial colors
+            time.sleep(0.1)
+
+        # NOTE: Pad LED clearing removed - intro message handles this internally
 
         # Clear all track button LEDs
         for btn_num in range(self.TRACK_BUTTON_COUNT):
