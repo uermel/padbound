@@ -577,6 +577,41 @@ class ControllerPlugin(ABC):
 
         return None
 
+    def compute_control_state(
+        self,
+        control_id: str,
+        value: int,
+        signal_type: str,
+        current_state: 'ControlState',
+        control_definition: 'ControlDefinition',
+    ) -> Optional['ControlState']:
+        """
+        Compute new state for a control.
+
+        Override this method when hardware manages state internally
+        (e.g., toggle state tracked by controller, not software).
+
+        The default implementation returns None, which tells the controller
+        to use standard control type behavior (ToggleControl flips state,
+        MomentaryControl triggers, ContinuousControl tracks value).
+
+        Example use case: Xjam controller manages toggle state in hardware
+        and reports current state via velocity (>0 = ON, 0 = OFF). The plugin
+        overrides this to interpret velocity as state rather than toggle trigger.
+
+        Args:
+            control_id: Control identifier (e.g., "pad_1@bank_1")
+            value: Raw MIDI value (0-127)
+            signal_type: Signal type from translate_input (e.g., "note", "cc")
+            current_state: Current control state
+            control_definition: Control definition with type, colors, etc.
+
+        Returns:
+            ControlState if plugin handles state computation,
+            None to use default control type behavior.
+        """
+        return None  # Default: use standard control type behavior
+
     # Helper methods
 
     def _extract_value(self, msg: mido.Message) -> Optional[int]:

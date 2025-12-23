@@ -784,38 +784,56 @@ class Controller:
 
         control_id, value, signal_type = result
 
-        # Update state
+        # Get control for plugin hook and callbacks
+        control = self._state.get_control(control_id)
+        if not control:
+            logger.debug(f"Control not found: {control_id}")
+            return
+
+        # Update state - allow plugin to compute state for hardware-managed controls
         try:
-            new_state = self._state.update_state(control_id, value)
+            # Check if plugin wants to compute state itself
+            plugin_state = self._plugin.compute_control_state(
+                control_id=control_id,
+                value=value,
+                signal_type=signal_type,
+                current_state=control.state,
+                control_definition=control.definition,
+            )
 
-            # Get control type and category for callbacks
-            control = self._state.get_control(control_id)
-            if control:
-                control_type = control.definition.control_type
-                category = control.definition.category
-                self._callbacks.on_control_change(
-                    control_id, new_state, control_type, signal_type, category
-                )
+            if plugin_state is not None:
+                # Plugin provided state - use it directly
+                new_state = self._state.set_control_state(control_id, plugin_state)
+            else:
+                # Use default control type behavior
+                new_state = self._state.update_state(control_id, value)
 
-                # Auto-send feedback if control REQUIRES it (hardware doesn't manage LEDs)
-                # Works for both color-based (pads) and on/off-based (buttons) controls
-                if control.definition.capabilities.requires_feedback:
-                    # Convert ControlState to dict for translate_feedback
-                    state_dict = {
-                        'is_on': new_state.is_on,
-                        'value': new_state.value,
-                        'color': new_state.color,
-                        'normalized_value': new_state.normalized_value,
-                        'led_mode': new_state.led_mode,
-                        'definition_led_mode': control.definition.led_mode,  # Configured mode
-                    }
-                    messages = self._plugin.translate_feedback(control_id, state_dict)
-                    feedback_delay = self._state.capabilities.feedback_message_delay
-                    for feedback_msg in messages:
-                        self._send_message(feedback_msg)
-                        # Add inter-message delay if device needs it (e.g., Note On → SysEx)
-                        if feedback_delay > 0:
-                            time.sleep(feedback_delay)
+            # Fire callbacks with control type and category
+            control_type = control.definition.control_type
+            category = control.definition.category
+            self._callbacks.on_control_change(
+                control_id, new_state, control_type, signal_type, category
+            )
+
+            # Auto-send feedback if control REQUIRES it (hardware doesn't manage LEDs)
+            # Works for both color-based (pads) and on/off-based (buttons) controls
+            if control.definition.capabilities.requires_feedback:
+                # Convert ControlState to dict for translate_feedback
+                state_dict = {
+                    'is_on': new_state.is_on,
+                    'value': new_state.value,
+                    'color': new_state.color,
+                    'normalized_value': new_state.normalized_value,
+                    'led_mode': new_state.led_mode,
+                    'definition_led_mode': control.definition.led_mode,  # Configured mode
+                }
+                messages = self._plugin.translate_feedback(control_id, state_dict)
+                feedback_delay = self._state.capabilities.feedback_message_delay
+                for feedback_msg in messages:
+                    self._send_message(feedback_msg)
+                    # Add inter-message delay if device needs it (e.g., Note On → SysEx)
+                    if feedback_delay > 0:
+                        time.sleep(feedback_delay)
 
         except ValueError as e:
             logger.error(f"Error updating state: {e}")

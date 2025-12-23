@@ -160,6 +160,40 @@ class ControllerState:
 
             return new_state
 
+    def set_control_state(
+        self,
+        control_id: str,
+        new_state: ControlState,
+    ) -> ControlState:
+        """
+        Set control state directly (for plugin-computed state).
+
+        Use this when a plugin computes state itself rather than
+        relying on the control's default state computation logic.
+
+        Args:
+            control_id: Control identifier
+            new_state: Pre-computed state from plugin
+
+        Returns:
+            The new state
+
+        Raises:
+            ValueError: If control_id not found
+        """
+        with self._lock:
+            control = self._controls.get(control_id)
+            if not control:
+                raise ValueError(f"Unknown control: {control_id}")
+
+            # Update control's internal state directly
+            control._state = new_state
+
+            # Track in history
+            self._history.append((control_id, new_state))
+
+            return new_state
+
     def get_state(self, control_id: str) -> Optional[ControlState]:
         """
         Get current state for a control.

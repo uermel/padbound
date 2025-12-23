@@ -11,6 +11,7 @@ from .akai_lpd8_mk2 import AkaiLPD8MK2Plugin
 from .example_pad_controller import ExamplePadController
 from .generic_midi import GenericMIDIController
 from .presonus_atom import PreSonusAtomPlugin
+from .xjam import XjamPlugin
 
 from ..registry import plugin_registry
 
@@ -20,6 +21,7 @@ plugin_registry.register(AkaiLPD8MK2Plugin)
 plugin_registry.register(ExamplePadController)
 plugin_registry.register(GenericMIDIController)
 plugin_registry.register(PreSonusAtomPlugin)
+plugin_registry.register(XjamPlugin)
 
 __all__ = [
     'AkaiAPCminiMK2Plugin',
@@ -27,4 +29,5 @@ __all__ = [
     'ExamplePadController',
     'GenericMIDIController',
     'PreSonusAtomPlugin',
+    'XjamPlugin',
 ]
