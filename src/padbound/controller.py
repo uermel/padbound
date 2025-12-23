@@ -224,7 +224,9 @@ class Controller:
                             'is_on': False,
                             'value': 0,
                             'color': control.definition.off_color,
-                            'normalized_value': None
+                            'normalized_value': None,
+                            'led_mode': None,  # Runtime mode (None when OFF)
+                            'definition_led_mode': control.definition.led_mode,  # Configured mode
                         }
                         messages = self._plugin.translate_feedback(control.definition.control_id, state_dict)
                         for msg in messages:
@@ -805,6 +807,7 @@ class Controller:
                         'color': new_state.color,
                         'normalized_value': new_state.normalized_value,
                         'led_mode': new_state.led_mode,
+                        'definition_led_mode': control.definition.led_mode,  # Configured mode
                     }
                     messages = self._plugin.translate_feedback(control_id, state_dict)
                     for feedback_msg in messages:

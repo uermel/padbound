@@ -191,6 +191,7 @@ References:
 ================================================================================
 """
 
+import time
 from typing import Callable, Optional
 
 import mido
@@ -393,6 +394,151 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
     SINGLE_LED_ON = 0x01
     SINGLE_LED_BLINK = 0x02
 
+    # LED mode channels for Note On method (pad LED control with palette colors)
+    # These are MIDI channel numbers (0-indexed) for mido.Message
+    LED_CHANNEL_SOLID = 6       # 100% brightness, solid
+    LED_CHANNEL_PULSE = 9       # 1/4 note pulse (medium speed)
+    LED_CHANNEL_BLINK = 14      # 1/4 note blink (medium speed)
+
+    # 128-color palette for Note On LED control
+    # Maps velocity values to approximate RGB colors
+    # Based on APC mini MK2 protocol documentation
+    COLOR_PALETTE: dict[int, tuple[int, int, int]] = {
+        0: (0, 0, 0),           # Off/Black
+        1: (30, 30, 30),        # Dark gray
+        2: (127, 127, 127),     # Gray
+        3: (255, 255, 255),     # White
+        4: (255, 76, 76),       # Light red
+        5: (255, 0, 0),         # Red
+        6: (89, 0, 0),          # Dark red
+        7: (25, 0, 0),          # Dim red
+        8: (255, 189, 108),     # Peach
+        9: (255, 84, 0),        # Orange
+        10: (89, 29, 0),        # Dark orange
+        11: (39, 27, 0),        # Brown
+        12: (255, 255, 76),     # Light yellow
+        13: (255, 255, 0),      # Yellow
+        14: (89, 89, 0),        # Dark yellow
+        15: (25, 25, 0),        # Dim yellow
+        16: (136, 255, 76),     # Yellow-green
+        17: (84, 255, 0),       # Lime
+        18: (29, 89, 0),        # Dark lime
+        19: (20, 43, 0),        # Dim lime
+        20: (76, 255, 76),      # Light green
+        21: (0, 255, 0),        # Green
+        22: (0, 89, 0),         # Dark green
+        23: (0, 25, 0),         # Dim green
+        24: (76, 255, 94),      # Mint
+        25: (0, 255, 25),       # Spring green
+        26: (0, 89, 13),        # Dark spring
+        27: (0, 25, 2),         # Dim spring
+        28: (76, 255, 136),     # Light cyan-green
+        29: (0, 255, 84),       # Cyan-green
+        30: (0, 89, 29),        # Dark cyan-green
+        31: (0, 31, 18),        # Dim cyan-green
+        32: (76, 255, 183),     # Light aqua
+        33: (0, 255, 153),      # Aqua
+        34: (0, 89, 53),        # Dark aqua
+        35: (0, 25, 18),        # Dim aqua
+        36: (76, 195, 255),     # Light sky blue
+        37: (0, 255, 255),      # Cyan
+        38: (0, 89, 89),        # Dark cyan
+        39: (0, 25, 25),        # Dim cyan
+        40: (76, 136, 255),     # Light blue
+        41: (0, 170, 255),      # Sky blue
+        42: (0, 65, 82),        # Dark sky blue
+        43: (0, 16, 25),        # Dim sky blue
+        44: (76, 76, 255),      # Light indigo
+        45: (0, 0, 255),        # Blue
+        46: (0, 0, 89),         # Dark blue
+        47: (0, 0, 25),         # Dim blue
+        48: (135, 76, 255),     # Light purple
+        49: (84, 0, 255),       # Purple
+        50: (25, 0, 100),       # Dark purple
+        51: (15, 0, 48),        # Dim purple
+        52: (255, 76, 255),     # Light magenta
+        53: (255, 0, 255),      # Magenta
+        54: (89, 0, 89),        # Dark magenta
+        55: (25, 0, 25),        # Dim magenta
+        56: (255, 76, 135),     # Pink
+        57: (255, 0, 84),       # Hot pink
+        58: (89, 0, 29),        # Dark pink
+        59: (48, 0, 24),        # Dim pink
+        60: (255, 25, 0),       # Red-orange
+        61: (153, 53, 0),       # Rust
+        62: (121, 81, 0),       # Gold
+        63: (67, 100, 0),       # Olive
+        64: (3, 57, 0),         # Forest
+        65: (0, 87, 53),        # Teal
+        66: (0, 84, 127),       # Ocean
+        67: (0, 0, 255),        # Royal blue
+        68: (0, 68, 117),       # Navy
+        69: (39, 0, 136),       # Indigo
+        70: (72, 0, 120),       # Violet
+        71: (110, 0, 48),       # Maroon
+        # Extended colors (72-127) - variations and blends
+        72: (255, 77, 0),
+        73: (255, 148, 0),
+        74: (165, 255, 0),
+        75: (0, 255, 59),
+        76: (0, 199, 255),
+        77: (0, 84, 255),
+        78: (60, 0, 255),
+        79: (163, 0, 186),
+        80: (255, 0, 59),
+        81: (255, 101, 76),
+        82: (255, 148, 76),
+        83: (210, 255, 76),
+        84: (76, 255, 110),
+        85: (76, 220, 255),
+        86: (76, 130, 255),
+        87: (110, 76, 255),
+        88: (195, 76, 210),
+        89: (255, 76, 110),
+        # More variations
+        90: (255, 40, 0),
+        91: (180, 100, 0),
+        92: (140, 140, 0),
+        93: (50, 140, 0),
+        94: (0, 140, 60),
+        95: (0, 100, 140),
+        96: (0, 50, 140),
+        97: (60, 0, 140),
+        98: (120, 0, 100),
+        99: (140, 0, 40),
+        # High saturation colors
+        100: (255, 0, 48),
+        101: (255, 128, 0),
+        102: (200, 200, 0),
+        103: (80, 200, 0),
+        104: (0, 200, 80),
+        105: (0, 160, 200),
+        106: (0, 80, 200),
+        107: (80, 0, 200),
+        108: (160, 0, 160),
+        109: (200, 0, 80),
+        # Soft pastels
+        110: (255, 180, 180),
+        111: (255, 220, 180),
+        112: (255, 255, 180),
+        113: (200, 255, 180),
+        114: (180, 255, 200),
+        115: (180, 255, 255),
+        116: (180, 200, 255),
+        117: (200, 180, 255),
+        118: (255, 180, 255),
+        119: (255, 180, 220),
+        # Final colors
+        120: (180, 60, 0),
+        121: (100, 80, 0),
+        122: (60, 80, 0),
+        123: (0, 80, 40),
+        124: (0, 60, 80),
+        125: (0, 40, 80),
+        126: (40, 0, 80),
+        127: (80, 0, 60),
+    }
+
     def __init__(self):
         """Initialize plugin."""
         super().__init__()
@@ -400,6 +546,45 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
         self._current_pad_colors: dict[str, tuple[int, int, int]] = {}
         # Track discovered fader positions
         self._fader_positions: dict[str, int] = {}
+
+    def _find_nearest_palette_color(self, r: int, g: int, b: int) -> int:
+        """Find velocity value of nearest color in the 128-color palette.
+
+        Uses Euclidean distance in RGB color space to find the closest match.
+
+        Args:
+            r: Red component (0-255)
+            g: Green component (0-255)
+            b: Blue component (0-255)
+
+        Returns:
+            Velocity value (0-127) for the nearest palette color
+        """
+        min_distance = float('inf')
+        nearest_velocity = 0
+        for velocity, (pr, pg, pb) in self.COLOR_PALETTE.items():
+            # Euclidean distance in RGB space
+            distance = (r - pr) ** 2 + (g - pg) ** 2 + (b - pb) ** 2
+            if distance < min_distance:
+                min_distance = distance
+                nearest_velocity = velocity
+        return nearest_velocity
+
+    def _get_led_mode_channel(self, led_mode: str) -> int:
+        """Get MIDI channel for the specified LED mode.
+
+        Args:
+            led_mode: LED mode ("solid", "pulse", or "blink")
+
+        Returns:
+            MIDI channel number (0-indexed) for Note On message
+        """
+        if led_mode == 'pulse':
+            return self.LED_CHANNEL_PULSE
+        elif led_mode == 'blink':
+            return self.LED_CHANNEL_BLINK
+        else:
+            return self.LED_CHANNEL_SOLID
 
     @property
     def name(self) -> str:
@@ -425,8 +610,8 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
             grid_rows=self.PAD_ROWS,
             grid_cols=self.PAD_COLS,
             supports_persistent_configuration=False,  # No SysEx programming
-            post_init_delay=0.3,  # Device needs time after intro message before LED commands
-            feedback_message_delay=0.005,  # 5ms between SysEx messages (prevents buffer overflow)
+            post_init_delay=0.5,  # Device needs time after intro message before LED commands
+            feedback_message_delay=0.010,  # 10ms between SysEx messages (prevents buffer overflow)
         )
 
     def get_control_definitions(self) -> list[ControlDefinition]:
@@ -457,7 +642,8 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
                             requires_feedback=True,  # Device needs LED updates from library
                             supports_led=True,
                             supports_color=True,
-                            color_mode="rgb",  # True RGB via SysEx
+                            color_mode="rgb",  # True RGB via SysEx (solid mode)
+                            supported_led_modes=["solid", "pulse", "blink"],  # Pulse/blink use palette
                             requires_discovery=False,  # Pads report state immediately
                         ),
                         display_name=f"Pad {row},{col}",
@@ -682,7 +868,9 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
             else:
                 logger.warning("No introduction response received from device")
 
-        # NOTE: Pad LED clearing removed - intro message handles this internally
+        # NOTE: The 0x60 intro message above clears all LEDs internally and resets
+        # the device to SysEx-ready state. Do NOT send Note On clearing here, as
+        # that would put all pads into Note On mode and break SysEx for solid pads.
         # NOTE: post_init_delay in get_capabilities() handles the timing for LED updates
 
         # Clear all track button LEDs
@@ -717,10 +905,72 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
     def shutdown(self, send_message: Callable[[mido.Message], None]) -> None:
         """
         Shutdown sequence - clear all LEDs.
+
+        Sends messages to turn off all pads, track buttons, and scene buttons.
+        For pads, we need to:
+        1. Send Note Off to stop any blink/pulse animations (all channels)
+        2. Send SysEx to set RGB to black
         """
         logger.info("Shutting down AKAI APC mini MK2")
-        # Reuse init to clear all LEDs
-        self.init(send_message, None)
+
+        # Use same delay as initialization to avoid buffer overflow
+        message_delay = 0.010  # 10ms between messages
+
+        # Clear all pad LEDs
+        black = APCminiMK2RGBColor(r=0, g=0, b=0)
+        for row in range(8):
+            for col in range(8):
+                pad_note = self.PAD_START_NOTE + (row * 8) + col
+
+                # Stop any blink/pulse animations by sending Note Off on all LED channels
+                for channel in [self.LED_CHANNEL_SOLID, self.LED_CHANNEL_PULSE, self.LED_CHANNEL_BLINK]:
+                    stop_msg = mido.Message(
+                        'note_on',
+                        channel=channel,
+                        note=pad_note,
+                        velocity=0
+                    )
+                    send_message(stop_msg)
+                    time.sleep(message_delay)
+
+                # Set RGB to black via SysEx
+                sysex_msg = self._build_pad_rgb_sysex(pad_note, black)
+                send_message(sysex_msg)
+                time.sleep(message_delay)
+
+        # Clear all track button LEDs
+        for btn_num in range(self.TRACK_BUTTON_COUNT):
+            midi_note = self.TRACK_BUTTON_START + btn_num
+            msg = mido.Message(
+                'note_on',
+                channel=0,
+                note=midi_note,
+                velocity=self.SINGLE_LED_OFF
+            )
+            send_message(msg)
+            time.sleep(message_delay)
+
+        # Clear all scene button LEDs
+        for btn_num in range(self.SCENE_BUTTON_COUNT):
+            midi_note = self.SCENE_BUTTON_START + btn_num
+            msg = mido.Message(
+                'note_on',
+                channel=0,
+                note=midi_note,
+                velocity=self.SINGLE_LED_OFF
+            )
+            send_message(msg)
+            time.sleep(message_delay)
+
+        # Reset color tracking
+        self._current_pad_colors = {}
+
+        # Send Introduction message (0x60) to reset device to clean SysEx-ready state.
+        # This should help avoid requiring unplug/replug between sessions.
+        intro = APCminiMK2IntroRequest()
+        send_message(intro.to_sysex_message())
+
+        logger.info("APC mini MK2 shutdown complete")
 
     def translate_feedback(
         self,
@@ -744,7 +994,9 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
         """
         messages = []
 
-        # Handle pad feedback (RGB LEDs via SysEx)
+        # Handle pad feedback (RGB LEDs)
+        # - Solid mode: SysEx for full RGB colors
+        # - Pulse/Blink modes: Note On with palette color (hardware limitation)
         if control_id.startswith("pad_"):
             try:
                 # Extract row and col from control_id (e.g., "pad_3_5" -> row=3, col=5)
@@ -756,9 +1008,12 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
                 logger.error(f"Invalid pad control_id format: {control_id} ({e})")
                 return []
 
-            # Get color from state - controller already passes the correct color
-            # (on_color when is_on=True, off_color when is_on=False)
-            color = state_dict.get('color', 'off')
+            # Get color and LED mode from state
+            # Use 'or' to handle both missing key AND None value
+            color = state_dict.get('color') or 'off'
+            led_mode = state_dict.get('led_mode') or 'solid'  # Runtime mode
+            definition_led_mode = state_dict.get('definition_led_mode') or 'solid'  # Configured mode
+            is_on = state_dict.get('is_on', False)
 
             # Parse color string to RGB
             rgb_color = APCminiMK2RGBColor.from_string(color)
@@ -766,9 +1021,38 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
             # Store current color as RGB tuple
             self._current_pad_colors[control_id] = (rgb_color.r, rgb_color.g, rgb_color.b)
 
-            # Build SysEx message for RGB LED update
-            msg = self._build_pad_rgb_sysex(pad_note, rgb_color)
-            messages.append(msg)
+            # MODE SEPARATION: SysEx and Note On are mutually exclusive per pad.
+            # Once Note On is sent on an animation channel, the pad ignores SysEx
+            # until device power cycle. Therefore:
+            # - Pulse/blink pads: ALWAYS use Note On (never SysEx)
+            # - Solid pads: ALWAYS use SysEx (never Note On)
+
+            if definition_led_mode in ('pulse', 'blink'):
+                # PULSE/BLINK PADS: Use Note On ONLY (never SysEx)
+                # This pad must stay in Note On mode for its entire lifecycle
+                if is_on:
+                    # ON: Use animation channel with color velocity
+                    velocity = self._find_nearest_palette_color(rgb_color.r, rgb_color.g, rgb_color.b)
+                    channel = self._get_led_mode_channel(definition_led_mode)
+                else:
+                    # OFF: Use channel 6 (solid) with palette-approximated off_color
+                    if rgb_color.r == 0 and rgb_color.g == 0 and rgb_color.b == 0:
+                        velocity = 0  # True black
+                    else:
+                        velocity = self._find_nearest_palette_color(rgb_color.r, rgb_color.g, rgb_color.b)
+                    channel = self.LED_CHANNEL_SOLID  # Channel 6 for solid off state
+
+                msg = mido.Message(
+                    'note_on',
+                    channel=channel,
+                    note=pad_note,
+                    velocity=velocity
+                )
+                messages.append(msg)
+            else:
+                # SOLID PADS: Use SysEx RGB (full color fidelity)
+                sysex_msg = self._build_pad_rgb_sysex(pad_note, rgb_color)
+                messages.append(sysex_msg)
 
         # Handle track button feedback (single red LED)
         elif control_id.startswith("track_"):

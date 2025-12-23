@@ -40,21 +40,38 @@ def create_example_config() -> ControllerConfig:
     - Rainbow gradient across the pad grid with dim OFF states
     - Mix of different color schemes per row
     - ON/OFF color states for visual feedback
+    - LED animation modes: solid (default), pulse, and blink
 
     The 8x8 grid layout (row 0 = bottom, row 7 = top):
-    - Row 0: Rainbow spectrum (bright when ON, dim when OFF)
-    - Row 1: Warm colors (bright on, dim off)
-    - Row 2: Cool colors (bright on, black off)
-    - Row 3: Earth tones (bright on, dim off)
-    - Row 4: Bright colors (on) vs dark (off)
-    - Row 5: Monochrome gradient (bright on, dark off)
-    - Row 6: Primary colors (bright on, black off)
-    - Row 7: Purple/magenta gradient (bright on, dim off)
+    - Row 0: Rainbow spectrum (bright when ON, dim when OFF) - SOLID
+    - Row 1: Warm colors (bright on, dim off) - SOLID
+    - Row 2: Cool colors (bright on, black off) - SOLID
+    - Row 3: Earth tones (bright on, dim off) - SOLID
+    - Row 4: Bright colors (on) vs dark (off) - SOLID
+    - Row 5: Monochrome gradient (bright on, dark off) - SOLID
+    - Row 6: Primary colors - PULSE mode (pulsing when ON)
+    - Row 7: Purple/magenta gradient - BLINK mode (blinking when ON)
 
     Color formats supported:
     - Named: "red", "green", "blue", "cyan", "magenta", "yellow", "white", "black"
     - Hex: "#FF0000", "#00FF00", "#0000FF"
     - RGB: "rgb(255, 0, 0)", "rgb(0, 255, 0)", "rgb(0, 0, 255)"
+
+    LED modes:
+    - "solid": Full RGB colors via SysEx (default)
+    - "pulse": Pulsing animation via Note On (uses 128-color palette approximation)
+    - "blink": Blinking animation via Note On (uses 128-color palette approximation)
+
+    HARDWARE LIMITATION:
+    The APC mini MK2 has two mutually exclusive LED control modes per pad:
+    - SysEx RGB mode: Full 24-bit colors (used by solid mode)
+    - Note On mode: 128-color palette with animations (used by pulse/blink)
+
+    Once a pad receives a Note On command, it switches to palette mode and ignores
+    SysEx commands until the device is reset. Therefore:
+    - Solid pads: True RGB colors for both ON and OFF states
+    - Pulse/blink pads: 128-color palette approximation for both ON and OFF states
+      (off_colors may look slightly different from their RGB specification)
     """
     controls = {}
 
@@ -123,24 +140,28 @@ def create_example_config() -> ControllerConfig:
             off_color=off_color
         )
 
-    # Row 6: Primary colors (bright on, black off)
+    # Row 6: Primary colors with PULSE mode (pulsing animation when ON)
+    # Note: Pulse mode uses 128-color palette, so colors are approximated
     primary = ['red', 'red', 'green', 'green', 'blue', 'blue', 'yellow', 'yellow']
     for col, color in enumerate(primary):
         controls[f"pad_6_{col}"] = ControlConfig(
             type=ControlType.TOGGLE,
             color=color,
-            off_color='black'
+            off_color='black',
+            led_mode='pulse'  # Pulsing animation when ON
         )
 
-    # Row 7 (top): Purple/magenta gradient with dim off
-    purple_on = ['#6666FF', 'blue', '#8800FF', 'purple', '#FF00FF', 'magenta', '#FF4488', 'pink']
+    # Row 7 (top): Purple/magenta gradient with BLINK mode (blinking when ON)
+    # Note: Blink mode uses 128-color palette, so colors are approximated
+    purple_on = ['blue', 'blue', 'purple', 'purple', 'magenta', 'magenta', 'pink', 'pink']
     purple_off = ['rgb(24, 24, 64)', 'rgb(0, 0, 64)', 'rgb(32, 0, 64)', 'rgb(32, 0, 64)',
                   'rgb(64, 0, 64)', 'rgb(64, 0, 64)', 'rgb(64, 16, 32)', 'rgb(64, 16, 32)']
     for col, (on_color, off_color) in enumerate(zip(purple_on, purple_off)):
         controls[f"pad_7_{col}"] = ControlConfig(
             type=ControlType.TOGGLE,
             color=on_color,
-            off_color=off_color
+            off_color=off_color,
+            led_mode='blink'  # Blinking animation when ON
         )
 
     config = ControllerConfig(controls=controls)
@@ -199,15 +220,15 @@ def main():
     config = create_example_config()
     print("   ✓ Configuration created with colorful 8x8 pad grid:")
     print("      Using true RGB colors via SysEx (named, hex, or rgb() formats)")
-    print("      Each row demonstrates ON/OFF color states:")
-    print("      - Row 0 (bottom): Rainbow (bright on, dim off)")
-    print("      - Row 1: Warm colors (bright on, dim off)")
-    print("      - Row 2: Cool colors (bright on, BLACK off)")
-    print("      - Row 3: Earth tones (bright on, dim off)")
-    print("      - Row 4: Bright colors (bright on, dark off)")
-    print("      - Row 5: Monochrome gradient (bright on, dark off)")
-    print("      - Row 6: Primary colors (bright on, BLACK off)")
-    print("      - Row 7 (top): Purple/magenta (bright on, dim off)")
+    print("      Each row demonstrates ON/OFF color states and LED modes:")
+    print("      - Row 0 (bottom): Rainbow (bright on, dim off) - SOLID")
+    print("      - Row 1: Warm colors (bright on, dim off) - SOLID")
+    print("      - Row 2: Cool colors (bright on, BLACK off) - SOLID")
+    print("      - Row 3: Earth tones (bright on, dim off) - SOLID")
+    print("      - Row 4: Bright colors (bright on, dark off) - SOLID")
+    print("      - Row 5: Monochrome gradient (bright on, dark off) - SOLID")
+    print("      - Row 6: Primary colors (BLACK off) - PULSE mode")
+    print("      - Row 7 (top): Purple/magenta (dim off) - BLINK mode")
 
     # Create controller instance
     print("\n2. Creating controller instance...")
