@@ -111,6 +111,14 @@ class ControllerCapabilities(BaseModel):
     # Used by controllers that cannot be queried for their current program/bank.
     requires_initialization_handshake: bool = False
 
+    # Delay (seconds) to wait after init() before sending initial LED states.
+    # Needed for devices with async initialization (e.g., APC mini intro message).
+    post_init_delay: float = Field(default=0.0, ge=0.0)
+
+    # Delay (seconds) between feedback messages during initialization.
+    # Needed for devices with limited SysEx processing throughput.
+    feedback_message_delay: float = Field(default=0.0, ge=0.0)
+
 
 class BankDefinition(BaseModel):
     """

@@ -424,7 +424,9 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
             indexing_scheme="2d",          # 8x8 grid indexing
             grid_rows=self.PAD_ROWS,
             grid_cols=self.PAD_COLS,
-            supports_persistent_configuration=False  # No SysEx programming
+            supports_persistent_configuration=False,  # No SysEx programming
+            post_init_delay=0.3,  # Device needs time after intro message before LED commands
+            feedback_message_delay=0.005,  # 5ms between SysEx messages (prevents buffer overflow)
         )
 
     def get_control_definitions(self) -> list[ControlDefinition]:
@@ -656,8 +658,6 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
         Returns:
             Dictionary of discovered control values (fader_id -> position)
         """
-        import time
-
         logger.info("Initializing AKAI APC mini MK2")
 
         discovered_values: dict[str, int] = {}
@@ -682,12 +682,8 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
             else:
                 logger.warning("No introduction response received from device")
 
-            # Give device time to complete internal initialization after intro
-            # The intro message causes async LED reset which must complete
-            # before we can send initial colors
-            time.sleep(0.1)
-
         # NOTE: Pad LED clearing removed - intro message handles this internally
+        # NOTE: post_init_delay in get_capabilities() handles the timing for LED updates
 
         # Clear all track button LEDs
         for btn_num in range(self.TRACK_BUTTON_COUNT):

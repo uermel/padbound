@@ -5,6 +5,7 @@ This module provides the primary Controller class that orchestrates all
 components and provides a simple API for working with MIDI controllers.
 """
 
+import time
 from typing import Optional, Union, Any
 
 import mido
@@ -187,8 +188,13 @@ class Controller:
             self._plugin.configure_programs(self._send_message, self._controller_config)
 
             # Give device time to process the configuration before LED updates
-            import time
             time.sleep(0.2)
+
+        # Wait for device to complete async initialization (if needed)
+        # Some devices (e.g., APC mini) need time after init message before accepting LED commands
+        if self._state.capabilities.post_init_delay > 0:
+            logger.debug(f"Waiting {self._state.capabilities.post_init_delay}s for device init to complete")
+            time.sleep(self._state.capabilities.post_init_delay)
 
         # Check if plugin requires initialization handshake
         # When True, first MIDI input is consumed to detect bank/state
@@ -204,6 +210,7 @@ class Controller:
             # Display initial LED states for controls with configured colors
             # This lights up pads with their off_color to show the configured layout
             logger.debug("Setting initial LED states from configuration")
+            feedback_delay = self._state.capabilities.feedback_message_delay
             for control_def in self._plugin.get_control_definitions():
                 control = self._state.get_control(control_def.control_id)
                 if not control:
@@ -222,6 +229,9 @@ class Controller:
                         messages = self._plugin.translate_feedback(control.definition.control_id, state_dict)
                         for msg in messages:
                             self._send_message(msg)
+                            # Add inter-message delay if device needs it (prevents buffer overflow)
+                            if feedback_delay > 0:
+                                time.sleep(feedback_delay)
 
         # Set connected flag
         self._connected = True
