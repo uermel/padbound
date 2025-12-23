@@ -533,6 +533,19 @@ class Controller:
         """
         self._callbacks.register_type(control_type, callback, signal_type)
 
+    def on_category(self, category: str, callback, signal_type: Optional[str] = None) -> None:
+        """
+        Register callback for all controls in a category with optional signal filtering.
+
+        Categories are defined by plugins (e.g., "pad", "transport", "navigation", "mode").
+
+        Args:
+            category: Category name (e.g., "transport", "navigation", "pad")
+            callback: Function(control_id: str, state: ControlState) -> None
+            signal_type: Optional signal type filter (None = all signals)
+        """
+        self._callbacks.register_category(category, callback, signal_type)
+
     def on_global(self, callback, signal_type: Optional[str] = None) -> None:
         """
         Register callback for all control changes with optional signal filtering.
@@ -612,18 +625,37 @@ class Controller:
         Returns:
             Control instance
         """
-        # Resolve type and colors from config
-        actual_type, on_color, off_color = self._config_resolver.resolve_config(
+        # Resolve type, colors, and LED mode from config
+        actual_type, on_color, off_color, led_mode = self._config_resolver.resolve_config(
             definition.control_id,
             definition
         )
 
-        # Create control with resolved type and colors
+        # Validate led_mode against capabilities
+        if led_mode is not None:
+            supported_modes = definition.capabilities.supported_led_modes
+            # If supported_led_modes is None, only "solid" is implicitly supported
+            if supported_modes is None:
+                if led_mode != "solid":
+                    self._handle_unsupported_operation(
+                        f"Control '{definition.control_id}' does not support LED mode "
+                        f"'{led_mode}'. Only 'solid' is supported."
+                    )
+                    led_mode = None  # Fall back to default
+            elif led_mode not in supported_modes:
+                self._handle_unsupported_operation(
+                    f"Control '{definition.control_id}' does not support LED mode "
+                    f"'{led_mode}'. Supported modes: {supported_modes}"
+                )
+                led_mode = None  # Fall back to default
+
+        # Create control with resolved type, colors, and LED mode
         resolved_definition = definition.model_copy(
             update={
                 'control_type': actual_type,
                 'on_color': on_color,
-                'off_color': off_color
+                'off_color': off_color,
+                'led_mode': led_mode,
             }
         )
 
@@ -744,25 +776,29 @@ class Controller:
         try:
             new_state = self._state.update_state(control_id, value)
 
-            # Get control type for callbacks
+            # Get control type and category for callbacks
             control = self._state.get_control(control_id)
             if control:
                 control_type = control.definition.control_type
-                self._callbacks.on_control_change(control_id, new_state, control_type, signal_type)
+                category = control.definition.category
+                self._callbacks.on_control_change(
+                    control_id, new_state, control_type, signal_type, category
+                )
 
                 # Auto-send feedback if control REQUIRES it (hardware doesn't manage LEDs)
+                # Works for both color-based (pads) and on/off-based (buttons) controls
                 if control.definition.capabilities.requires_feedback:
-                    if new_state.color is not None:
-                        # Convert ControlState to dict for translate_feedback
-                        state_dict = {
-                            'is_on': new_state.is_on,
-                            'value': new_state.value,
-                            'color': new_state.color,
-                            'normalized_value': new_state.normalized_value
-                        }
-                        messages = self._plugin.translate_feedback(control_id, state_dict)
-                        for feedback_msg in messages:
-                            self._send_message(feedback_msg)
+                    # Convert ControlState to dict for translate_feedback
+                    state_dict = {
+                        'is_on': new_state.is_on,
+                        'value': new_state.value,
+                        'color': new_state.color,
+                        'normalized_value': new_state.normalized_value,
+                        'led_mode': new_state.led_mode,
+                    }
+                    messages = self._plugin.translate_feedback(control_id, state_dict)
+                    for feedback_msg in messages:
+                        self._send_message(feedback_msg)
 
         except ValueError as e:
             logger.error(f"Error updating state: {e}")

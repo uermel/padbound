@@ -45,6 +45,11 @@ class ControlCapabilities(BaseModel):
     color_mode: Literal["rgb", "velocity", "indexed", "none"] = "none"
     color_palette: Optional[list[str]] = None  # e.g., ["off", "green", "red", "yellow"]
 
+    # LED animation modes supported by hardware
+    # None = only solid supported (most controllers)
+    # ["solid", "pulse", "blink"] = full animation support (e.g., PreSonus Atom)
+    supported_led_modes: Optional[list[str]] = None
+
     # For rare motorized/value-setting controls
     supports_value_setting: bool = False
 
@@ -129,6 +134,7 @@ class ControlDefinition(BaseModel):
 
     control_id: str  # e.g., "pad_1", "fader_1", "pad_1@bank_1"
     control_type: ControlType
+    category: Optional[str] = None  # e.g., "pad", "transport", "navigation", "mode", "encoder"
     capabilities: ControlCapabilities
     bank_id: Optional[str] = None  # Optional bank membership
     display_name: Optional[str] = None  # User-friendly name
@@ -146,6 +152,9 @@ class ControlDefinition(BaseModel):
     # Color configuration (resolved from user config)
     on_color: Optional[str] = None  # Color when control is ON/active
     off_color: Optional[str] = None  # Color when control is OFF/inactive
+
+    # LED animation mode (resolved from user config)
+    led_mode: Optional[str] = None  # "solid", "pulse", "blink"
 
     @model_validator(mode='after')
     def validate_type_modes_consistency(self):
@@ -179,6 +188,7 @@ class ControlState(BaseModel):
     normalized_value: Optional[float] = None  # 0.0-1.0
     is_on: Optional[bool] = None  # For toggles
     color: Optional[str] = None
+    led_mode: Optional[str] = None  # LED animation mode when ON
 
     model_config = {"frozen": True}  # Immutability
 
@@ -313,12 +323,16 @@ class ToggleControl(Control):
         # Set color based on new state
         color = self._definition.on_color if new_is_on else self._definition.off_color
 
+        # LED mode only applies when ON
+        led_mode = self._definition.led_mode if new_is_on else None
+
         return ControlState(
             control_id=self._definition.control_id,
             timestamp=datetime.now(),
             is_on=new_is_on,
             value=value,
-            color=color
+            color=color,
+            led_mode=led_mode
         )
 
 
@@ -327,7 +341,19 @@ class MomentaryControl(Control):
     Momentary control - trigger events only, no persistent state.
 
     Used for buttons that trigger actions on press without maintaining state.
+    LED lights up while pressed, turns off when released.
     """
+
+    def __init__(self, definition: ControlDefinition):
+        """Initialize momentary control with off state."""
+        super().__init__(definition)
+        # Start in off state (discovered=False)
+        self._state = ControlState(
+            control_id=definition.control_id,
+            is_discovered=False,
+            is_on=False,
+            color=definition.off_color  # May be None for non-color buttons
+        )
 
     def _compute_new_state(self, value: int, **kwargs) -> ControlState:
         """
