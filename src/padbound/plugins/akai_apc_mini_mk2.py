@@ -238,6 +238,7 @@ from ..plugin import (
 from ..controls import (
     ControlDefinition,
     ControlType,
+    ControlTypeModes,
     ControlCapabilities,
     ControllerCapabilities,
 )
@@ -671,7 +672,13 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
                 definitions.append(
                     ControlDefinition(
                         control_id=f"pad_{row}_{col}",
-                        control_type=ControlType.TOGGLE,
+                        control_type=ControlType.TOGGLE,  # Default to TOGGLE
+                        category="pad",
+                        type_modes=ControlTypeModes(
+                            supported_types=[ControlType.TOGGLE, ControlType.MOMENTARY],
+                            default_type=ControlType.TOGGLE,
+                            requires_hardware_sync=False,  # Mode is software-only
+                        ),
                         capabilities=ControlCapabilities(
                             supports_feedback=True,
                             requires_feedback=True,  # Device needs LED updates from library

@@ -47,7 +47,7 @@ def create_example_config() -> ControllerConfig:
     - Row 1: Warm colors (bright on, dim off) - SOLID
     - Row 2: Cool colors (bright on, black off) - SOLID
     - Row 3: Earth tones (bright on, dim off) - SOLID
-    - Row 4: Bright colors (on) vs dark (off) - SOLID
+    - Row 4: Bright colors - MOMENTARY mode (lit while pressed only)
     - Row 5: Monochrome gradient (bright on, dark off) - SOLID
     - Row 6: Primary colors - PULSE mode (pulsing when ON)
     - Row 7: Purple/magenta gradient - BLINK mode (blinking when ON)
@@ -61,6 +61,10 @@ def create_example_config() -> ControllerConfig:
     - "solid": Full RGB colors via SysEx (default)
     - "pulse": Pulsing animation via Note On (uses 128-color palette approximation)
     - "blink": Blinking animation via Note On (uses 128-color palette approximation)
+
+    Control types:
+    - TOGGLE: Press toggles pad on/off, state persists (default)
+    - MOMENTARY: Pad lights while pressed, turns off when released
 
     HARDWARE NOTES:
     The APC mini MK2 has two LED control modes:
@@ -116,13 +120,13 @@ def create_example_config() -> ControllerConfig:
             off_color=off_color
         )
 
-    # Row 4: Bright colors vs dark off states
+    # Row 4: Bright colors - MOMENTARY mode (lights while pressed, off when released)
     bright_on = ['pink', 'orange', 'yellow', 'lime', 'cyan', 'blue', 'purple', 'magenta']
     bright_off = ['rgb(48, 0, 0)', 'rgb(48, 24, 0)', 'rgb(48, 48, 0)', 'rgb(0, 48, 0)',
                   'rgb(0, 48, 48)', 'rgb(0, 0, 48)', 'rgb(24, 0, 48)', 'rgb(48, 0, 48)']
     for col, (on_color, off_color) in enumerate(zip(bright_on, bright_off)):
         controls[f"pad_4_{col}"] = ControlConfig(
-            type=ControlType.TOGGLE,
+            type=ControlType.MOMENTARY,  # Lights only while pressed
             color=on_color,
             off_color=off_color
         )
@@ -219,15 +223,15 @@ def main():
     config = create_example_config()
     print("   ✓ Configuration created with colorful 8x8 pad grid:")
     print("      Using true RGB colors via SysEx (named, hex, or rgb() formats)")
-    print("      Each row demonstrates ON/OFF color states and LED modes:")
-    print("      - Row 0 (bottom): Rainbow (bright on, dim off) - SOLID")
-    print("      - Row 1: Warm colors (bright on, dim off) - SOLID")
-    print("      - Row 2: Cool colors (bright on, BLACK off) - SOLID")
-    print("      - Row 3: Earth tones (bright on, dim off) - SOLID")
-    print("      - Row 4: Bright colors (bright on, dark off) - SOLID")
-    print("      - Row 5: Monochrome gradient (bright on, dark off) - SOLID")
-    print("      - Row 6: Primary colors (BLACK off) - PULSE mode")
-    print("      - Row 7 (top): Purple/magenta (dim off) - BLINK mode")
+    print("      Each row demonstrates ON/OFF color states, LED modes, and control types:")
+    print("      - Row 0 (bottom): Rainbow (bright on, dim off) - SOLID TOGGLE")
+    print("      - Row 1: Warm colors (bright on, dim off) - SOLID TOGGLE")
+    print("      - Row 2: Cool colors (bright on, BLACK off) - SOLID TOGGLE")
+    print("      - Row 3: Earth tones (bright on, dim off) - SOLID TOGGLE")
+    print("      - Row 4: Bright colors - MOMENTARY (lights while pressed)")
+    print("      - Row 5: Monochrome gradient (bright on, dark off) - SOLID TOGGLE")
+    print("      - Row 6: Primary colors (BLACK off) - PULSE TOGGLE")
+    print("      - Row 7 (top): Purple/magenta (dim off) - BLINK TOGGLE")
 
     # Create controller instance
     print("\n2. Creating controller instance...")
@@ -240,8 +244,9 @@ def main():
 
     # Type-specific callbacks
     controller.on_type(ControlType.TOGGLE, on_pad_change)
+    controller.on_type(ControlType.MOMENTARY, on_pad_change)
     controller.on_type(ControlType.CONTINUOUS, on_fader_change)
-    print("   ✓ Registered callbacks for pads (TOGGLE) and faders (CONTINUOUS)")
+    print("   ✓ Registered callbacks for pads (TOGGLE/MOMENTARY) and faders (CONTINUOUS)")
 
     # Control-specific callbacks for buttons
     for i in range(1, 9):
@@ -315,8 +320,9 @@ def main():
     print("    * Watch the ON/OFF color transitions!")
     print("    * Row 2 and 6: Completely dark when OFF")
     print("    * Row 0, 1, 3, 7: Dim colors when OFF")
-    print("    * Row 4, 5: Different dark colors when OFF")
-    print("    * Each row demonstrates different ON/OFF color schemes")
+    print("    * Row 4: MOMENTARY mode - lights only while pressed!")
+    print("    * Row 5: Different dark colors when OFF")
+    print("    * Each row demonstrates different control types and LED modes")
     print("  - Move faders to see continuous values (0-127)")
     print("    * Initial positions are discovered on startup (shown above)")
     print("    * Faders 1-8 are channel faders")
