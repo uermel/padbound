@@ -125,6 +125,38 @@ Common velocity-to-color mappings:
     9   = Orange         13  = Yellow
 
 --------------------------------------------------------------------------------
+CRITICAL: LED MODE SWITCHING RULES (SysEx vs Note On)
+--------------------------------------------------------------------------------
+The APC mini MK2 has two mutually exclusive LED control modes per pad:
+  1. SysEx RGB mode (0x24): Full 24-bit colors, solid only
+  2. Note On mode: 128-color palette with animations (pulse/blink)
+
+IMPORTANT RULES discovered through testing:
+
+  1. TIMING: Between a Note On LED command and a SysEx LED command,
+     there MUST be a pause of at least 0.001 seconds (1ms).
+
+  2. MODE SWITCHING: You CANNOT directly switch from blink/pulse mode
+     (channels 0x97-0x9F) to SysEx RGB mode. The SysEx will be ignored.
+
+     HOWEVER: You CAN switch from solid mode (channels 0x90-0x96) to SysEx.
+
+  3. WORKAROUND: To transition from blink/pulse to SysEx RGB color:
+     a) Send Note On on solid channel (0x96) with velocity 0 (black)
+     b) Wait at least 1ms
+     c) Send SysEx RGB command (0x24)
+
+     Example sequence to stop blinking and set RGB color:
+        96 0E 00       (Note On ch6, pad 14, velocity 0 = solid black)
+        [wait 1ms]
+        F0 47 7F 4F 24 00 08 0E 0E 00 40 00 10 00 20 F7  (SysEx RGB)
+
+  4. CLEARING PADS: To clear a pad without blocking subsequent SysEx:
+     - ONLY send Note On on solid channel (0x90-0x96), NOT blink/pulse channels
+     - Sending velocity 0 on blink/pulse channels puts pad in "black blinking"
+       state which will block all subsequent SysEx commands for that pad 💩
+
+--------------------------------------------------------------------------------
 SINGLE LED CONTROL (Track/Scene Buttons)
 --------------------------------------------------------------------------------
 Track and Scene buttons have single-color LEDs (red/green respectively).
@@ -191,6 +223,7 @@ References:
 ================================================================================
 """
 
+import colorsys
 import time
 from typing import Callable, Optional
 
@@ -562,9 +595,11 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
         """
         min_distance = float('inf')
         nearest_velocity = 0
+        qh, ql, qs = colorsys.rgb_to_hsv(r/255, g/255, b/255)
         for velocity, (pr, pg, pb) in self.COLOR_PALETTE.items():
             # Euclidean distance in RGB space
-            distance = (r - pr) ** 2 + (g - pg) ** 2 + (b - pb) ** 2
+            ph, pl, ps = colorsys.rgb_to_hsv(pr/255, pg/255, pb/255)
+            distance = (qh - ph) ** 2 + (ql - pl) ** 2 + (qs - ps) ** 2
             if distance < min_distance:
                 min_distance = distance
                 nearest_velocity = velocity
@@ -922,16 +957,16 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
             for col in range(8):
                 pad_note = self.PAD_START_NOTE + (row * 8) + col
 
-                # Stop any blink/pulse animations by sending Note Off on all LED channels
-                for channel in [self.LED_CHANNEL_SOLID, self.LED_CHANNEL_PULSE, self.LED_CHANNEL_BLINK]:
-                    stop_msg = mido.Message(
-                        'note_on',
-                        channel=channel,
-                        note=pad_note,
-                        velocity=0
-                    )
-                    send_message(stop_msg)
-                    time.sleep(message_delay)
+                # Stop any blink/pulse animations ONLY on animation channels (NOT channel 6)
+                # Sending on channel 6 would put solid pads into Note On mode, blocking SysEx
+                stop_msg = mido.Message(
+                    'note_on',
+                    channel=self.LED_CHANNEL_SOLID,
+                    note=pad_note,
+                    velocity=0
+                )
+                send_message(stop_msg)
+                time.sleep(message_delay)
 
                 # Set RGB to black via SysEx
                 sysex_msg = self._build_pad_rgb_sysex(pad_note, black)
@@ -1021,34 +1056,39 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
             # Store current color as RGB tuple
             self._current_pad_colors[control_id] = (rgb_color.r, rgb_color.g, rgb_color.b)
 
-            # MODE SEPARATION: SysEx and Note On are mutually exclusive per pad.
-            # Once Note On is sent on an animation channel, the pad ignores SysEx
-            # until device power cycle. Therefore:
-            # - Pulse/blink pads: ALWAYS use Note On (never SysEx)
-            # - Solid pads: ALWAYS use SysEx (never Note On)
+            # LED CONTROL RULES (hardware behavior):
+            # 1. Need >=0.001s delay between Note On and SysEx
+            # 2. Cannot go directly from blink/pulse (ch 0x97-0x9F) to SysEx
+            # 3. CAN go from solid (ch 0x90-0x96) to SysEx
+            # So: blink/pulse → solid (vel=0) → delay → SysEx works!
 
             if definition_led_mode in ('pulse', 'blink'):
-                # PULSE/BLINK PADS: Use Note On ONLY (never SysEx)
-                # This pad must stay in Note On mode for its entire lifecycle
+                # PULSE/BLINK PADS
                 if is_on:
-                    # ON: Use animation channel with color velocity
+                    # ON: Use animation channel with palette color velocity
                     velocity = self._find_nearest_palette_color(rgb_color.r, rgb_color.g, rgb_color.b)
                     channel = self._get_led_mode_channel(definition_led_mode)
+                    msg = mido.Message(
+                        'note_on',
+                        channel=channel,
+                        note=pad_note,
+                        velocity=velocity
+                    )
+                    messages.append(msg)
                 else:
-                    # OFF: Use channel 6 (solid) with palette-approximated off_color
-                    if rgb_color.r == 0 and rgb_color.g == 0 and rgb_color.b == 0:
-                        velocity = 0  # True black
-                    else:
-                        velocity = self._find_nearest_palette_color(rgb_color.r, rgb_color.g, rgb_color.b)
-                    channel = self.LED_CHANNEL_SOLID  # Channel 6 for solid off state
-
-                msg = mido.Message(
-                    'note_on',
-                    channel=channel,
-                    note=pad_note,
-                    velocity=velocity
-                )
-                messages.append(msg)
+                    # OFF: Switch to solid mode first, then SysEx for true RGB off_color
+                    # Step 1: Note On solid channel (vel=0) to exit blink/pulse mode
+                    solid_msg = mido.Message(
+                        'note_on',
+                        channel=self.LED_CHANNEL_SOLID,
+                        note=pad_note,
+                        velocity=0
+                    )
+                    messages.append(solid_msg)
+                    # Step 2: SysEx for true RGB off_color
+                    # (delay between messages handled by feedback_message_delay)
+                    sysex_msg = self._build_pad_rgb_sysex(pad_note, rgb_color)
+                    messages.append(sysex_msg)
             else:
                 # SOLID PADS: Use SysEx RGB (full color fidelity)
                 sysex_msg = self._build_pad_rgb_sysex(pad_note, rgb_color)

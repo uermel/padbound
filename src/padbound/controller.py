@@ -810,8 +810,12 @@ class Controller:
                         'definition_led_mode': control.definition.led_mode,  # Configured mode
                     }
                     messages = self._plugin.translate_feedback(control_id, state_dict)
+                    feedback_delay = self._state.capabilities.feedback_message_delay
                     for feedback_msg in messages:
                         self._send_message(feedback_msg)
+                        # Add inter-message delay if device needs it (e.g., Note On → SysEx)
+                        if feedback_delay > 0:
+                            time.sleep(feedback_delay)
 
         except ValueError as e:
             logger.error(f"Error updating state: {e}")

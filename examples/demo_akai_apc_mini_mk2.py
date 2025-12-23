@@ -62,16 +62,15 @@ def create_example_config() -> ControllerConfig:
     - "pulse": Pulsing animation via Note On (uses 128-color palette approximation)
     - "blink": Blinking animation via Note On (uses 128-color palette approximation)
 
-    HARDWARE LIMITATION:
-    The APC mini MK2 has two mutually exclusive LED control modes per pad:
-    - SysEx RGB mode: Full 24-bit colors (used by solid mode)
-    - Note On mode: 128-color palette with animations (used by pulse/blink)
+    HARDWARE NOTES:
+    The APC mini MK2 has two LED control modes:
+    - SysEx RGB mode: Full 24-bit colors
+    - Note On mode: 128-color palette with animations (pulse/blink)
 
-    Once a pad receives a Note On command, it switches to palette mode and ignores
-    SysEx commands until the device is reset. Therefore:
+    Behavior by LED mode:
     - Solid pads: True RGB colors for both ON and OFF states
-    - Pulse/blink pads: 128-color palette approximation for both ON and OFF states
-      (off_colors may look slightly different from their RGB specification)
+    - Pulse/blink pads ON: 128-color palette approximation (hardware limitation)
+    - Pulse/blink pads OFF: True RGB colors (via solid→SysEx transition)
     """
     controls = {}
 
