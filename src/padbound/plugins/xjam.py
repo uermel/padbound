@@ -1032,6 +1032,7 @@ class XjamPlugin(ControllerPlugin):
                             bank_num = int(bank_id.split('_')[1]) - 1  # "bank_1" -> 0
                             bank_select = XjamBankSelect(bank=bank_num)
                             self._send_message(bank_select.to_pad_bank_message())
+                            time.sleep(0.05)  # Xjam needs delay between SysEx commands
                             self._send_message(bank_select.to_ctrl_bank_message())
                     break
 
