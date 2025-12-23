@@ -381,16 +381,37 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
     PAD_COLS = 8
     PAD_COUNT = 64
     FADER_COUNT = 9
-    TRACK_BUTTON_COUNT = 8
-    SCENE_BUTTON_COUNT = 8
 
     # MIDI note assignments
     # Pads: 8x8 grid from bottom-left (0x00) to top-right (0x3F)
     PAD_START_NOTE = 0x00  # Bottom-left pad
 
-    # UI Buttons
-    TRACK_BUTTON_START = 0x64  # Track buttons 1-8 (100-107)
-    SCENE_BUTTON_START = 0x70  # Scene launch buttons 1-8 (112-119)
+    # Fader control buttons (bottom row, red LEDs) - notes 0x64-0x6B
+    # These control what the faders affect in Ableton Live
+    FADER_CTRL_BUTTONS: dict[str, int] = {
+        "volume": 0x64,   # Fader control: Volume
+        "pan": 0x65,      # Fader control: Pan
+        "send": 0x66,     # Fader control: Send
+        "device": 0x67,   # Fader control: Device
+        "up": 0x68,       # Navigation: Up
+        "down": 0x69,     # Navigation: Down
+        "left": 0x6A,     # Navigation: Left
+        "right": 0x6B,    # Navigation: Right
+    }
+
+    # Scene buttons (right column, green LEDs) - notes 0x70-0x77
+    SCENE_BUTTONS: dict[str, int] = {
+        "clip": 0x70,     # Clip view
+        "solo": 0x71,     # Solo
+        "mute": 0x72,     # Mute
+        "rec": 0x73,      # Record arm
+        "select": 0x74,   # Select
+        "drum": 0x75,     # Drum mode
+        "note": 0x76,     # Note mode
+        "stop_all": 0x77, # Stop all clips
+    }
+
+    # Shift button (no LED)
     SHIFT_BUTTON_NOTE = 0x7A   # Shift button (122)
 
     # Faders: CC numbers
@@ -709,12 +730,13 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
                 )
             )
 
-        # 8 track buttons (momentary with red LED)
-        for btn_num in range(1, self.TRACK_BUTTON_COUNT + 1):
+        # Fader control / navigation buttons (bottom row, red LEDs)
+        for btn_name in self.FADER_CTRL_BUTTONS.keys():
             definitions.append(
                 ControlDefinition(
-                    control_id=f"track_{btn_num}",
+                    control_id=btn_name,
                     control_type=ControlType.MOMENTARY,
+                    category="fader_ctrl" if btn_name in ("volume", "pan", "send", "device") else "navigation",
                     capabilities=ControlCapabilities(
                         supports_feedback=True,
                         requires_feedback=True,  # Device needs LED updates from library
@@ -722,16 +744,17 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
                         supports_color=False,  # Single red LED only
                         requires_discovery=False,
                     ),
-                    display_name=f"Track {btn_num}",
+                    display_name=btn_name.replace("_", " ").title(),
                 )
             )
 
-        # 8 scene launch buttons (momentary with green LED)
-        for btn_num in range(1, self.SCENE_BUTTON_COUNT + 1):
+        # Scene buttons (right column, green LEDs)
+        for btn_name in self.SCENE_BUTTONS.keys():
             definitions.append(
                 ControlDefinition(
-                    control_id=f"scene_{btn_num}",
+                    control_id=btn_name,
                     control_type=ControlType.MOMENTARY,
+                    category="scene",
                     capabilities=ControlCapabilities(
                         supports_feedback=True,
                         requires_feedback=True,  # Device needs LED updates from library
@@ -739,7 +762,7 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
                         supports_color=False,  # Single green LED only
                         requires_discovery=False,
                     ),
-                    display_name=f"Scene {btn_num}",
+                    display_name=btn_name.replace("_", " ").title(),
                 )
             )
 
@@ -804,46 +827,40 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
                 )
             )
 
-        # Track button mappings - note on/off
-        for btn_num in range(1, self.TRACK_BUTTON_COUNT + 1):
-            midi_note = self.TRACK_BUTTON_START + btn_num - 1
-            control_id = f"track_{btn_num}"
-
+        # Fader control / navigation button mappings - note on/off
+        for btn_name, midi_note in self.FADER_CTRL_BUTTONS.items():
             mappings.extend([
                 MIDIMapping(
                     message_type=MIDIMessageType.NOTE_ON,
                     channel=0,
                     note=midi_note,
-                    control_id=control_id,
+                    control_id=btn_name,
                     signal_type="note",
                 ),
                 MIDIMapping(
                     message_type=MIDIMessageType.NOTE_OFF,
                     channel=0,
                     note=midi_note,
-                    control_id=control_id,
+                    control_id=btn_name,
                     signal_type="note",
                 ),
             ])
 
-        # Scene launch button mappings - note on/off
-        for btn_num in range(1, self.SCENE_BUTTON_COUNT + 1):
-            midi_note = self.SCENE_BUTTON_START + btn_num - 1
-            control_id = f"scene_{btn_num}"
-
+        # Scene button mappings - note on/off
+        for btn_name, midi_note in self.SCENE_BUTTONS.items():
             mappings.extend([
                 MIDIMapping(
                     message_type=MIDIMessageType.NOTE_ON,
                     channel=0,
                     note=midi_note,
-                    control_id=control_id,
+                    control_id=btn_name,
                     signal_type="note",
                 ),
                 MIDIMapping(
                     message_type=MIDIMessageType.NOTE_OFF,
                     channel=0,
                     note=midi_note,
-                    control_id=control_id,
+                    control_id=btn_name,
                     signal_type="note",
                 ),
             ])
@@ -915,9 +932,8 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
         # that would put all pads into Note On mode and break SysEx for solid pads.
         # NOTE: post_init_delay in get_capabilities() handles the timing for LED updates
 
-        # Clear all track button LEDs
-        for btn_num in range(self.TRACK_BUTTON_COUNT):
-            midi_note = self.TRACK_BUTTON_START + btn_num
+        # Clear all fader control / navigation button LEDs
+        for midi_note in self.FADER_CTRL_BUTTONS.values():
             msg = mido.Message(
                 'note_on',
                 channel=0,
@@ -926,9 +942,8 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
             )
             send_message(msg)
 
-        # Clear all scene launch button LEDs
-        for btn_num in range(self.SCENE_BUTTON_COUNT):
-            midi_note = self.SCENE_BUTTON_START + btn_num
+        # Clear all scene button LEDs
+        for midi_note in self.SCENE_BUTTONS.values():
             msg = mido.Message(
                 'note_on',
                 channel=0,
@@ -980,9 +995,8 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
                 send_message(sysex_msg)
                 time.sleep(message_delay)
 
-        # Clear all track button LEDs
-        for btn_num in range(self.TRACK_BUTTON_COUNT):
-            midi_note = self.TRACK_BUTTON_START + btn_num
+        # Clear all fader control / navigation button LEDs
+        for midi_note in self.FADER_CTRL_BUTTONS.values():
             msg = mido.Message(
                 'note_on',
                 channel=0,
@@ -993,8 +1007,7 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
             time.sleep(message_delay)
 
         # Clear all scene button LEDs
-        for btn_num in range(self.SCENE_BUTTON_COUNT):
-            midi_note = self.SCENE_BUTTON_START + btn_num
+        for midi_note in self.SCENE_BUTTONS.values():
             msg = mido.Message(
                 'note_on',
                 channel=0,
@@ -1101,15 +1114,9 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
                 sysex_msg = self._build_pad_rgb_sysex(pad_note, rgb_color)
                 messages.append(sysex_msg)
 
-        # Handle track button feedback (single red LED)
-        elif control_id.startswith("track_"):
-            try:
-                btn_num = int(control_id.split("_")[1])
-                midi_note = self.TRACK_BUTTON_START + btn_num - 1
-            except (IndexError, ValueError) as e:
-                logger.error(f"Invalid track button control_id format: {control_id} ({e})")
-                return []
-
+        # Handle fader control / navigation button feedback (single red LED)
+        elif control_id in self.FADER_CTRL_BUTTONS:
+            midi_note = self.FADER_CTRL_BUTTONS[control_id]
             is_on = state_dict.get('is_on', False)
             velocity = self.SINGLE_LED_ON if is_on else self.SINGLE_LED_OFF
 
@@ -1122,14 +1129,8 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
             messages.append(msg)
 
         # Handle scene button feedback (single green LED)
-        elif control_id.startswith("scene_"):
-            try:
-                btn_num = int(control_id.split("_")[1])
-                midi_note = self.SCENE_BUTTON_START + btn_num - 1
-            except (IndexError, ValueError) as e:
-                logger.error(f"Invalid scene button control_id format: {control_id} ({e})")
-                return []
-
+        elif control_id in self.SCENE_BUTTONS:
+            midi_note = self.SCENE_BUTTONS[control_id]
             is_on = state_dict.get('is_on', False)
             velocity = self.SINGLE_LED_ON if is_on else self.SINGLE_LED_OFF
 

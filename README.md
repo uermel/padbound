@@ -9,7 +9,7 @@
 </p>
 
 
-A unified, stateful python interface for MIDI controllers that abstracts hardware differences behind a simple API.
+A general, stateful python interface for MIDI controllers that abstracts hardware differences behind a simple API.
 
 ## Overview
 

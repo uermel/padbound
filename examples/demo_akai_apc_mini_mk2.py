@@ -172,8 +172,11 @@ def create_example_config() -> ControllerConfig:
 
 
 def on_pad_change(control_id: str, state: ControlState):
-    """Callback for pad events."""
-    # Extract row and col from control_id
+    """Callback for pad events (called via on_type)."""
+    # Filter: only handle pads (not buttons which are also MOMENTARY)
+    if not control_id.startswith("pad_"):
+        return
+    # Extract row and col from control_id (format: pad_row_col)
     parts = control_id.split('_')
     row, col = parts[1], parts[2]
     status = "ON " if state.is_on else "off"
@@ -187,22 +190,24 @@ def on_fader_change(control_id: str, state: ControlState):
     print(f"[FADER {fader_num}] {state.value:3d}/127 [{bar:<31s}]")
 
 
-def on_track_button(control_id: str, state: ControlState):
-    """Callback for track button events."""
-    btn_num = control_id.split('_')[1]
-    status = "PRESSED" if state.is_on else "released"
-    print(f"[TRACK {btn_num}] {status}")
+def make_fader_ctrl_callback(btn_name: str):
+    """Create a callback for a fader control / navigation button."""
+    def callback(state: ControlState):
+        status = "PRESSED" if state.is_on else "released"
+        print(f"[{btn_name.upper()}] {status}")
+    return callback
 
 
-def on_scene_button(control_id: str, state: ControlState):
-    """Callback for scene button events."""
-    btn_num = control_id.split('_')[1]
-    status = "PRESSED" if state.is_on else "released"
-    print(f"[SCENE {btn_num}] {status}")
+def make_scene_callback(btn_name: str):
+    """Create a callback for a scene button."""
+    def callback(state: ControlState):
+        status = "PRESSED" if state.is_on else "released"
+        print(f"[{btn_name.upper()}] {status}")
+    return callback
 
 
-def on_shift_button(control_id: str, state: ControlState):
-    """Callback for shift button events."""
+def on_shift_button(state: ControlState):
+    """Callback for shift button events (on_control passes only state)."""
     status = "PRESSED" if state.is_on else "released"
     print(f"[SHIFT] {status}")
 
@@ -248,12 +253,19 @@ def main():
     controller.on_type(ControlType.CONTINUOUS, on_fader_change)
     print("   ✓ Registered callbacks for pads (TOGGLE/MOMENTARY) and faders (CONTINUOUS)")
 
-    # Control-specific callbacks for buttons
-    for i in range(1, 9):
-        controller.on_control(f"track_{i}", on_track_button)
-        controller.on_control(f"scene_{i}", on_scene_button)
+    # Control-specific callbacks for buttons (using closures to capture button names)
+    # Fader control / navigation buttons (bottom row, red LEDs)
+    fader_ctrl_buttons = ["volume", "pan", "send", "device", "up", "down", "left", "right"]
+    for btn_name in fader_ctrl_buttons:
+        controller.on_control(btn_name, make_fader_ctrl_callback(btn_name))
+
+    # Scene buttons (right column, green LEDs)
+    scene_buttons = ["clip", "solo", "mute", "rec", "select", "drum", "note", "stop_all"]
+    for btn_name in scene_buttons:
+        controller.on_control(btn_name, make_scene_callback(btn_name))
+
     controller.on_control("shift", on_shift_button)
-    print("   ✓ Registered callbacks for track, scene, and shift buttons")
+    print("   ✓ Registered callbacks for fader control, navigation, scene, and shift buttons")
 
     # Global callback for everything
     controller.on_global(on_any_control)
@@ -277,8 +289,8 @@ def main():
     print(f"Controls: {len(controller.get_controls())} total")
     print(f"  - {plugin.PAD_COUNT} RGB pads (8x8 grid)")
     print(f"  - {plugin.FADER_COUNT} faders (8 channel + 1 master)")
-    print(f"  - {plugin.TRACK_BUTTON_COUNT} track buttons (red LED)")
-    print(f"  - {plugin.SCENE_BUTTON_COUNT} scene buttons (green LED)")
+    print(f"  - 8 fader control buttons (volume, pan, send, device) + navigation (up, down, left, right)")
+    print(f"  - 8 scene buttons (clip, solo, mute, rec, select, drum, note, stop_all)")
     print(f"  - 1 shift button")
 
     # Show discovered fader positions
@@ -327,8 +339,9 @@ def main():
     print("    * Initial positions are discovered on startup (shown above)")
     print("    * Faders 1-8 are channel faders")
     print("    * Fader 9 is the master fader")
-    print("  - Press track buttons (1-8) - red LEDs will light up")
-    print("  - Press scene buttons (1-8) - green LEDs will light up")
+    print("  - Press fader control buttons (volume, pan, send, device) - red LEDs")
+    print("  - Press navigation buttons (up, down, left, right) - red LEDs")
+    print("  - Press scene buttons (clip, solo, mute, rec, select, drum, note, stop_all) - green LEDs")
     print("  - Press shift button (no LED feedback)")
     print("")
 
