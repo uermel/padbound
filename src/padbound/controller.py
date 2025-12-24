@@ -817,6 +817,7 @@ class Controller:
 
             # Auto-send feedback if control REQUIRES it (hardware doesn't manage LEDs)
             # Works for both color-based (pads) and on/off-based (buttons) controls
+            logger.debug(f"Auto-feedback check for {control_id}: requires_feedback={control.definition.capabilities.requires_feedback}")
             if control.definition.capabilities.requires_feedback:
                 # Convert ControlState to dict for translate_feedback
                 state_dict = {
