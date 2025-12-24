@@ -30,7 +30,7 @@ control types (toggles, momentary triggers, continuous controls) and RGB colors 
 ## Installation
 
 ```bash
-pip install -e .
+pip install padbound
 ```
 
 ## Quick Start
