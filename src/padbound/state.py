@@ -9,7 +9,7 @@ import threading
 from collections import deque
 from typing import Optional
 
-from .controls import (
+from padbound.controls import (
     Control,
     ControllerCapabilities,
     ControlState,

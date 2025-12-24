@@ -7,19 +7,19 @@ differences behind a simple API. Applications interact with three control types
 underlying MIDI implementation.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 # Main API
 # Configuration models
-from .config import (
+from padbound.config import (
     BankConfig,
     ControlConfig,
     ControllerConfig,
 )
-from .controller import Controller
+from padbound.controller import Controller
 
 # Control types and models
-from .controls import (
+from padbound.controls import (
     BankDefinition,
     CapabilityError,
     ControlCapabilities,
@@ -31,20 +31,18 @@ from .controls import (
 )
 
 # Logging configuration
-from .logging_config import (
+from padbound.logging_config import (
     get_logger,
     set_module_level,
     setup_logging,
 )
 
 # Plugin development
-from .plugin import ControllerPlugin
+from padbound.plugin import ControllerPlugin
 
 # Plugins
-from .plugins.akai_lpd8_mk2 import AkaiLPD8MK2Plugin
-from .plugins.example_pad_controller import ExamplePadController
-from .plugins.generic_midi import GenericMIDIController
-from .registry import plugin_registry
+from padbound.plugins.akai_lpd8_mk2 import AkaiLPD8MK2Plugin
+from padbound.registry import plugin_registry
 
 __all__ = [
     # Version
@@ -75,6 +73,4 @@ __all__ = [
     "plugin_registry",
     # Plugins
     "AkaiLPD8MK2Plugin",
-    "ExamplePadController",
-    "GenericMIDIController",
 ]

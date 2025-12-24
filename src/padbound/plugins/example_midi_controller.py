@@ -102,7 +102,7 @@ from typing import Callable, Optional
 
 import mido
 
-from ..controls import (
+from padbound.controls import (
     BankDefinition,
     ControlCapabilities,
     ControlDefinition,
@@ -110,8 +110,8 @@ from ..controls import (
     ControlType,
     ControlTypeModes,
 )
-from ..logging_config import get_logger
-from ..plugin import (
+from padbound.logging_config import get_logger
+from padbound.plugin import (
     ControllerPlugin,
     MIDIMapping,
     MIDIMessageType,

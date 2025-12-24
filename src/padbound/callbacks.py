@@ -9,8 +9,8 @@ import threading
 from collections import defaultdict
 from typing import Callable, Optional
 
-from .controls import ControlState, ControlType
-from .logging_config import get_logger
+from padbound.controls import ControlState, ControlType
+from padbound.logging_config import get_logger
 
 logger = get_logger(__name__)
 

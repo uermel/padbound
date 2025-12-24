@@ -2,9 +2,9 @@
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/logo_dark.svg">
-    <source media="(prefers-color-scheme: light)" srcset="assets/logo_light.svg">
-    <img alt="Description" src="assets/logo_light.svg">
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/uermel/padbound/refs/heads/main/assets/logo_dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/uermel/padbound/refs/heads/main/assets/logo_light.svg">
+    <img alt="Padbound" src="https://raw.githubusercontent.com/uermel/padbound/refs/heads/main/assets/logo_light.svg">
   </picture>
 </p>
 

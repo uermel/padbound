@@ -10,8 +10,8 @@ from typing import Optional
 
 from pydantic import BaseModel, field_validator, model_validator
 
-from .controls import CapabilityError, ControlDefinition, ControlType
-from .logging_config import get_logger
+from padbound.controls import CapabilityError, ControlDefinition, ControlType
+from padbound.logging_config import get_logger
 
 logger = get_logger(__name__)
 

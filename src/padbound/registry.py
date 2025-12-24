@@ -9,8 +9,8 @@ from typing import Optional, Type
 
 import mido
 
-from .logging_config import get_logger
-from .plugin import ControllerPlugin
+from padbound.logging_config import get_logger
+from padbound.plugin import ControllerPlugin
 
 logger = get_logger(__name__)
 

@@ -121,20 +121,20 @@ from typing import Callable, Optional
 import mido
 from pydantic import BaseModel, Field
 
-from ..controls import (
+from padbound.controls import (
     ControlCapabilities,
     ControlDefinition,
     ControllerCapabilities,
     ControlType,
     ControlTypeModes,
 )
-from ..logging_config import get_logger
-from ..plugin import (
+from padbound.logging_config import get_logger
+from padbound.plugin import (
     ControllerPlugin,
     MIDIMapping,
     MIDIMessageType,
 )
-from ..utils import RGBColor
+from padbound.utils import RGBColor
 
 logger = get_logger(__name__)
 

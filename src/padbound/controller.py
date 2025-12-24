@@ -10,9 +10,9 @@ from typing import Optional, Union
 
 import mido
 
-from .callbacks import CallbackManager
-from .config import ControlConfigResolver, ControllerConfig
-from .controls import (
+from padbound.callbacks import CallbackManager
+from padbound.config import ControlConfigResolver, ControllerConfig
+from padbound.controls import (
     CapabilityError,
     ContinuousControl,
     Control,
@@ -23,11 +23,11 @@ from .controls import (
     MomentaryControl,
     ToggleControl,
 )
-from .logging_config import get_logger
-from .midi_io import MIDIInterface
-from .plugin import ControllerPlugin
-from .registry import plugin_registry
-from .state import ControllerState
+from padbound.logging_config import get_logger
+from padbound.midi_io import MIDIInterface
+from padbound.plugin import ControllerPlugin
+from padbound.registry import plugin_registry
+from padbound.state import ControllerState
 
 logger = get_logger(__name__)
 

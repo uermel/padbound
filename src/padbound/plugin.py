@@ -13,14 +13,14 @@ from typing import TYPE_CHECKING, Any, Callable, Literal, Optional, Union
 import mido
 from pydantic import BaseModel, Field
 
-from .controls import (
+from padbound.controls import (
     BankDefinition,
     ControlDefinition,
 )
 
 if TYPE_CHECKING:
-    from .config import BankConfig, ControllerConfig
-    from .controls import ControllerCapabilities, ControlState
+    from padbound.config import BankConfig, ControllerConfig
+    from padbound.controls import ControllerCapabilities, ControlState
 
 
 class MIDIMessageType(str, Enum):
