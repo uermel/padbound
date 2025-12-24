@@ -8,18 +8,19 @@ and hardware-specific initialization/shutdown sequences.
 
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Optional, Callable, Literal, Union, Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable, Literal, Optional, Union
 
 import mido
 from pydantic import BaseModel, Field
 
 from .controls import (
-    ControlDefinition,
     BankDefinition,
+    ControlDefinition,
 )
 
 if TYPE_CHECKING:
-    from .config import ControllerConfig, BankConfig
+    from .config import BankConfig, ControllerConfig
+    from .controls import ControllerCapabilities, ControlState
 
 
 class MIDIMessageType(str, Enum):
@@ -146,19 +147,16 @@ class MIDIMapping(BaseModel):
             return False
 
         # Check channel (if specified)
-        if self.channel is not None and hasattr(msg, 'channel'):
-            if msg.channel != self.channel:
-                return False
+        if self.channel is not None and hasattr(msg, "channel") and msg.channel != self.channel:
+            return False
 
         # Check note (if specified)
-        if self.note is not None and hasattr(msg, 'note'):
-            if msg.note != self.note:
-                return False
+        if self.note is not None and hasattr(msg, "note") and msg.note != self.note:
+            return False
 
         # Check control (if specified)
-        if self.control is not None and hasattr(msg, 'control'):
-            if msg.control != self.control:
-                return False
+        if self.control is not None and hasattr(msg, "control") and msg.control != self.control:
+            return False
 
         return True
 
@@ -237,21 +235,18 @@ class BankMapping(BaseModel):
         if msg.type != self.message_type.value:
             return False
 
-        if self.channel is not None and hasattr(msg, 'channel'):
-            if msg.channel != self.channel:
-                return False
+        if self.channel is not None and hasattr(msg, "channel") and msg.channel != self.channel:
+            return False
 
-        if self.note is not None and hasattr(msg, 'note'):
-            if msg.note != self.note:
-                return False
+        if self.note is not None and hasattr(msg, "note") and msg.note != self.note:
+            return False
 
-        if self.control is not None and hasattr(msg, 'control'):
-            if msg.control != self.control:
-                return False
+        if self.control is not None and hasattr(msg, "control") and msg.control != self.control:
+            return False
 
         if self.value is not None:
             # Check value field (velocity for notes, value for CC)
-            msg_value = getattr(msg, 'velocity', None) or getattr(msg, 'value', None)
+            msg_value = getattr(msg, "velocity", None) or getattr(msg, "value", None)
             if msg_value != self.value:
                 return False
 
@@ -290,7 +285,7 @@ class ControllerPlugin(ABC):
         """
         return []
 
-    def get_capabilities(self) -> 'ControllerCapabilities':
+    def get_capabilities(self) -> "ControllerCapabilities":
         """
         Get controller-level capabilities.
 
@@ -308,17 +303,15 @@ class ControllerPlugin(ABC):
         # Auto-detect: check if configure_programs was overridden
         base_method = ControllerPlugin.configure_programs
         current_method = type(self).configure_programs
-        supports_persistent = (current_method is not base_method)
+        supports_persistent = current_method is not base_method
 
-        return ControllerCapabilities(
-            supports_persistent_configuration=supports_persistent
-        )
+        return ControllerCapabilities(supports_persistent_configuration=supports_persistent)
 
     @abstractmethod
     def init(
         self,
         send_message: Callable[[mido.Message], None],
-        receive_message: Callable[[float], Optional[mido.Message]]
+        receive_message: Callable[[float], Optional[mido.Message]],
     ) -> Optional[dict[str, int]]:
         """
         Initialize controller to known state.
@@ -341,11 +334,7 @@ class ControllerPlugin(ABC):
         """
         pass
 
-    def configure_programs(
-        self,
-        send_message: Callable[[mido.Message], None],
-        config: 'ControllerConfig'
-    ) -> None:
+    def configure_programs(self, send_message: Callable[[mido.Message], None], config: "ControllerConfig") -> None:
         """
         Program persistent configuration into device memory (optional).
 
@@ -392,7 +381,7 @@ class ControllerPlugin(ABC):
         """
         # Default implementation: do nothing
         # Controllers without persistent config support don't need to override
-        pass
+        return  # noqa: B027
 
     def shutdown(self, send_message: Callable[[mido.Message], None]) -> None:
         """
@@ -408,14 +397,9 @@ class ControllerPlugin(ABC):
         Args:
             send_message: Function to send MIDI messages to controller
         """
-        pass
+        return  # noqa: B027
 
-    def validate_bank_config(
-        self,
-        bank_id: str,
-        bank_config: 'BankConfig',
-        strict_mode: bool = True
-    ) -> None:
+    def validate_bank_config(self, bank_id: str, bank_config: "BankConfig", strict_mode: bool = True) -> None:
         """
         Validate bank configuration against hardware constraints (optional).
 
@@ -434,13 +418,9 @@ class ControllerPlugin(ABC):
         Raises:
             ConfigurationError: In strict mode, if validation fails
         """
-        pass
+        return  # noqa: B027
 
-    def complete_initialization(
-        self,
-        msg: mido.Message,
-        send_message: Callable[[mido.Message], None]
-    ) -> Optional[str]:
+    def complete_initialization(self, msg: mido.Message, send_message: Callable[[mido.Message], None]) -> Optional[str]:
         """
         Complete initialization using first input message (optional).
 
@@ -536,9 +516,7 @@ class ControllerPlugin(ABC):
 
         return None
 
-    def translate_feedback(
-        self, control_id: str, state_dict: dict[str, Any]
-    ) -> list[mido.Message]:
+    def translate_feedback(self, control_id: str, state_dict: dict[str, Any]) -> list[mido.Message]:
         """
         Translate control state to MIDI feedback messages.
 
@@ -582,9 +560,9 @@ class ControllerPlugin(ABC):
         control_id: str,
         value: int,
         signal_type: str,
-        current_state: 'ControlState',
-        control_definition: 'ControlDefinition',
-    ) -> Optional['ControlState']:
+        current_state: "ControlState",
+        control_definition: "ControlDefinition",
+    ) -> Optional["ControlState"]:
         """
         Compute new state for a control.
 
@@ -625,24 +603,22 @@ class ControllerPlugin(ABC):
             Value (0-127) or None
         """
         # Try velocity (note messages)
-        if hasattr(msg, 'velocity'):
+        if hasattr(msg, "velocity"):
             return msg.velocity
 
         # Try value (CC messages)
-        if hasattr(msg, 'value'):
+        if hasattr(msg, "value"):
             return msg.value
 
         # Try pitch (pitchwheel)
-        if hasattr(msg, 'pitch'):
+        if hasattr(msg, "pitch"):
             # Convert -8192 to 8191 → 0 to 127
             pitch = msg.pitch + 8192
             return int(pitch / 16383 * 127)
 
         return None
 
-    def _build_feedback_message(
-        self, mapping: FeedbackMapping, state_dict: dict[str, Any]
-    ) -> Optional[mido.Message]:
+    def _build_feedback_message(self, mapping: FeedbackMapping, state_dict: dict[str, Any]) -> Optional[mido.Message]:
         """
         Build MIDI message from feedback mapping and state.
 
@@ -665,18 +641,13 @@ class ControllerPlugin(ABC):
         # Build message based on type
         try:
             if mapping.message_type == MIDIMessageType.NOTE_ON:
-                return mido.Message(
-                    'note_on',
-                    channel=mapping.channel,
-                    note=mapping.note or 0,
-                    velocity=value
-                )
+                return mido.Message("note_on", channel=mapping.channel, note=mapping.note or 0, velocity=value)
             elif mapping.message_type == MIDIMessageType.CONTROL_CHANGE:
                 return mido.Message(
-                    'control_change',
+                    "control_change",
                     channel=mapping.channel,
                     control=mapping.control or 0,
-                    value=value
+                    value=value,
                 )
             # Add other message types as needed
 

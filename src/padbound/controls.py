@@ -9,7 +9,7 @@ import threading
 from abc import ABC, abstractmethod
 from datetime import datetime
 from enum import Enum
-from typing import Optional, Literal
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -64,23 +64,23 @@ class ControlTypeModes(BaseModel):
     Most controls support only one type (fixed hardware behavior).
     Configurable controllers like LPD8 support multiple types.
     """
+
     supported_types: list[ControlType]  # e.g., [TOGGLE, MOMENTARY]
     default_type: ControlType  # Plugin's recommended default
     requires_hardware_sync: bool = False  # Does mode change require MIDI/SysEx?
 
-    @field_validator('supported_types')
+    @field_validator("supported_types")
     @classmethod
     def validate_non_empty(cls, v):
         if not v:
             raise ValueError("supported_types cannot be empty")
         return v
 
-    @field_validator('default_type')
+    @field_validator("default_type")
     @classmethod
     def validate_default_in_supported(cls, v, info):
-        if 'supported_types' in info.data:
-            if v not in info.data['supported_types']:
-                raise ValueError(f"default_type {v} must be in supported_types")
+        if "supported_types" in info.data and v not in info.data["supported_types"]:
+            raise ValueError(f"default_type {v} must be in supported_types")
         return v
 
 
@@ -164,15 +164,14 @@ class ControlDefinition(BaseModel):
     # LED animation mode (resolved from user config)
     led_mode: Optional[str] = None  # "solid", "pulse", "blink"
 
-    @model_validator(mode='after')
+    @model_validator(mode="after")
     def validate_type_modes_consistency(self):
         """Ensure control_type matches type_modes if both provided."""
-        if self.type_modes:
-            if self.control_type != self.type_modes.default_type:
-                raise ValueError(
-                    f"control_type {self.control_type} must match "
-                    f"type_modes.default_type {self.type_modes.default_type}"
-                )
+        if self.type_modes and self.control_type != self.type_modes.default_type:
+            raise ValueError(
+                f"control_type {self.control_type} must match "
+                f"type_modes.default_type {self.type_modes.default_type}",
+            )
         return self
 
 
@@ -208,6 +207,7 @@ class CapabilityError(Exception):
     Only raised in strict mode. In permissive mode, unsupported operations
     log warnings instead.
     """
+
     pass
 
 
@@ -227,10 +227,7 @@ class Control(ABC):
             definition: Control metadata including capabilities
         """
         self._definition = definition
-        self._state = ControlState(
-            control_id=definition.control_id,
-            is_discovered=False
-        )
+        self._state = ControlState(control_id=definition.control_id, is_discovered=False)
         self._lock = threading.RLock()
 
     @property
@@ -257,19 +254,15 @@ class Control(ABC):
         """
         with self._lock:
             # Track discovery
-            if not self._state.is_discovered:
-                first_discovered_at = datetime.now()
-            else:
-                first_discovered_at = self._state.first_discovered_at
+            first_discovered_at = datetime.now() if not self._state.is_discovered else self._state.first_discovered_at
 
             # Compute new state (subclass-specific)
             new_state = self._compute_new_state(value, **kwargs)
 
             # Mark as discovered
-            self._state = new_state.model_copy(update={
-                'is_discovered': True,
-                'first_discovered_at': first_discovered_at
-            })
+            self._state = new_state.model_copy(
+                update={"is_discovered": True, "first_discovered_at": first_discovered_at},
+            )
 
             return self._state
 
@@ -303,7 +296,7 @@ class ToggleControl(Control):
             control_id=definition.control_id,
             is_discovered=False,
             is_on=False,
-            color=definition.off_color
+            color=definition.off_color,
         )
 
     def _compute_new_state(self, value: int, **kwargs) -> ControlState:
@@ -321,12 +314,7 @@ class ToggleControl(Control):
             New state with toggled is_on and appropriate color
         """
         # Only toggle on press (velocity > 0), ignore release
-        if value > 0:
-            # Flip the current state
-            new_is_on = not self._state.is_on
-        else:
-            # Release: maintain current state
-            new_is_on = self._state.is_on
+        new_is_on = not self._state.is_on if value > 0 else self._state.is_on
 
         # Set color based on new state
         color = self._definition.on_color if new_is_on else self._definition.off_color
@@ -340,7 +328,7 @@ class ToggleControl(Control):
             is_on=new_is_on,
             value=value,
             color=color,
-            led_mode=led_mode
+            led_mode=led_mode,
         )
 
 
@@ -360,7 +348,7 @@ class MomentaryControl(Control):
             control_id=definition.control_id,
             is_discovered=False,
             is_on=False,
-            color=definition.off_color  # May be None for non-color buttons
+            color=definition.off_color,  # May be None for non-color buttons
         )
 
     def _compute_new_state(self, value: int, **kwargs) -> ControlState:
@@ -385,7 +373,7 @@ class MomentaryControl(Control):
             timestamp=datetime.now(),
             value=value,
             is_on=is_triggered,  # Treat trigger as momentary "on"
-            color=color
+            color=color,
         )
 
 
@@ -416,5 +404,5 @@ class ContinuousControl(Control):
             control_id=self._definition.control_id,
             timestamp=datetime.now(),
             value=value,
-            normalized_value=normalized
+            normalized_value=normalized,
         )

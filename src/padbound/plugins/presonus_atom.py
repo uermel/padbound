@@ -121,19 +121,19 @@ from typing import Callable, Optional
 import mido
 from pydantic import BaseModel, Field
 
+from ..controls import (
+    ControlCapabilities,
+    ControlDefinition,
+    ControllerCapabilities,
+    ControlType,
+    ControlTypeModes,
+)
+from ..logging_config import get_logger
 from ..plugin import (
     ControllerPlugin,
     MIDIMapping,
     MIDIMessageType,
 )
-from ..controls import (
-    ControlDefinition,
-    ControlType,
-    ControlTypeModes,
-    ControlCapabilities,
-    ControllerCapabilities,
-)
-from ..logging_config import get_logger
 from ..utils import RGBColor
 
 logger = get_logger(__name__)
@@ -163,9 +163,9 @@ class AtomRGBColor(RGBColor):
         # Convert from 0-255 to 0-127 (MIDI range)
         r, g, b = self.to_midi_range()
         return [
-            mido.Message('note_on', channel=1, note=pad_note, velocity=r),
-            mido.Message('note_on', channel=2, note=pad_note, velocity=g),
-            mido.Message('note_on', channel=3, note=pad_note, velocity=b),
+            mido.Message("note_on", channel=1, note=pad_note, velocity=r),
+            mido.Message("note_on", channel=2, note=pad_note, velocity=g),
+            mido.Message("note_on", channel=3, note=pad_note, velocity=b),
         ]
 
 
@@ -177,10 +177,7 @@ class AtomPadLEDState(BaseModel):
     """
 
     pad_note: int = Field(ge=36, le=51, description="Pad MIDI note (36-51)")
-    state: int = Field(
-        default=127,
-        description="LED state: 0=unlit, 1=blink, 2=breathe, 127=solid"
-    )
+    state: int = Field(default=127, description="LED state: 0=unlit, 1=blink, 2=breathe, 127=solid")
     color: AtomRGBColor = Field(description="RGB color for the pad")
 
     def to_messages(self) -> list[mido.Message]:
@@ -191,7 +188,7 @@ class AtomPadLEDState(BaseModel):
         """
         messages = [
             # State message on channel 0 (same as input channel)
-            mido.Message('note_on', channel=0, note=self.pad_note, velocity=self.state),
+            mido.Message("note_on", channel=0, note=self.pad_note, velocity=self.state),
         ]
         # Add RGB color messages
         messages.extend(self.color.to_rgb_messages(self.pad_note))
@@ -289,7 +286,7 @@ class PreSonusAtomPlugin(ControllerPlugin):
         """Return controller-level capabilities."""
         return ControllerCapabilities(
             supports_bank_feedback=False,  # Banks are hardware-managed
-            indexing_scheme="1d",          # Linear pad numbering (1-16)
+            indexing_scheme="1d",  # Linear pad numbering (1-16)
             supports_persistent_configuration=False,  # No SysEx programming
             requires_initialization_handshake=False,  # Native mode switch handled in init()
         )
@@ -327,7 +324,7 @@ class PreSonusAtomPlugin(ControllerPlugin):
                         requires_discovery=False,
                     ),
                     display_name=f"Pad {pad_num}",
-                )
+                ),
             )
 
         # 4 encoders (relative mode)
@@ -344,7 +341,7 @@ class PreSonusAtomPlugin(ControllerPlugin):
                     min_value=0,
                     max_value=127,
                     display_name=f"Encoder {enc_num}",
-                )
+                ),
             )
 
         # Button category mapping
@@ -353,7 +350,7 @@ class PreSonusAtomPlugin(ControllerPlugin):
         # All other buttons are "mode" buttons
 
         # Buttons
-        for btn_name, cc in self.BUTTON_CCS.items():
+        for btn_name, _cc in self.BUTTON_CCS.items():
             has_led = btn_name not in self.BUTTONS_NO_LED
             # Format display name: "note_repeat" -> "Note Repeat"
             display_name = btn_name.replace("_", " ").title()
@@ -379,7 +376,7 @@ class PreSonusAtomPlugin(ControllerPlugin):
                         requires_discovery=False,
                     ),
                     display_name=display_name,
-                )
+                ),
             )
 
         return definitions
@@ -399,22 +396,24 @@ class PreSonusAtomPlugin(ControllerPlugin):
             control_id = f"pad_{pad_num}"
             midi_note = self.PAD_START_NOTE + pad_num - 1
 
-            mappings.extend([
-                MIDIMapping(
-                    message_type=MIDIMessageType.NOTE_ON,
-                    channel=self.PAD_CHANNEL,
-                    note=midi_note,
-                    control_id=control_id,
-                    signal_type="note",
-                ),
-                MIDIMapping(
-                    message_type=MIDIMessageType.NOTE_OFF,
-                    channel=self.PAD_CHANNEL,
-                    note=midi_note,
-                    control_id=control_id,
-                    signal_type="note",
-                ),
-            ])
+            mappings.extend(
+                [
+                    MIDIMapping(
+                        message_type=MIDIMessageType.NOTE_ON,
+                        channel=self.PAD_CHANNEL,
+                        note=midi_note,
+                        control_id=control_id,
+                        signal_type="note",
+                    ),
+                    MIDIMapping(
+                        message_type=MIDIMessageType.NOTE_OFF,
+                        channel=self.PAD_CHANNEL,
+                        note=midi_note,
+                        control_id=control_id,
+                        signal_type="note",
+                    ),
+                ],
+            )
 
         # Encoder mappings
         for enc_num in range(1, self.ENCODER_COUNT + 1):
@@ -428,7 +427,7 @@ class PreSonusAtomPlugin(ControllerPlugin):
                     control=enc_cc,
                     control_id=control_id,
                     signal_type="default",
-                )
+                ),
             )
 
         # Button mappings
@@ -440,7 +439,7 @@ class PreSonusAtomPlugin(ControllerPlugin):
                     control=cc,
                     control_id=btn_name,
                     signal_type="default",
-                )
+                ),
             )
 
         return mappings
@@ -448,7 +447,7 @@ class PreSonusAtomPlugin(ControllerPlugin):
     def init(
         self,
         send_message: Callable[[mido.Message], None],
-        receive_message: Callable[[float], Optional[mido.Message]] = None
+        receive_message: Callable[[float], Optional[mido.Message]] = None,
     ) -> dict[str, int]:
         """
         Initialize Atom to Native Control mode.
@@ -466,35 +465,21 @@ class PreSonusAtomPlugin(ControllerPlugin):
         logger.info("Initializing PreSonus Atom")
 
         # Switch to Native Control mode
-        mode_msg = mido.Message(
-            'note_off',
-            channel=self.MODE_CHANNEL,
-            note=self.MODE_NOTE,
-            velocity=self.MODE_NATIVE
-        )
+        mode_msg = mido.Message("note_off", channel=self.MODE_CHANNEL, note=self.MODE_NOTE, velocity=self.MODE_NATIVE)
         send_message(mode_msg)
         logger.debug("Switched to Native Control mode")
 
         # Clear all pad LEDs (set to unlit/black)
         for pad_num in range(1, self.PAD_COUNT + 1):
             pad_note = self.PAD_START_NOTE + pad_num - 1
-            led_state = AtomPadLEDState(
-                pad_note=pad_note,
-                state=self.LED_UNLIT,
-                color=AtomRGBColor(r=0, g=0, b=0)
-            )
+            led_state = AtomPadLEDState(pad_note=pad_note, state=self.LED_UNLIT, color=AtomRGBColor(r=0, g=0, b=0))
             for msg in led_state.to_messages():
                 send_message(msg)
 
         # Clear all button LEDs
         for btn_name, cc in self.BUTTON_CCS.items():
             if btn_name not in self.BUTTONS_NO_LED:
-                msg = mido.Message(
-                    'control_change',
-                    channel=0,
-                    control=cc,
-                    value=0
-                )
+                msg = mido.Message("control_change", channel=0, control=cc, value=0)
                 send_message(msg)
 
         # Reset color tracking
@@ -515,32 +500,18 @@ class PreSonusAtomPlugin(ControllerPlugin):
         # Clear all pad LEDs
         for pad_num in range(1, self.PAD_COUNT + 1):
             pad_note = self.PAD_START_NOTE + pad_num - 1
-            led_state = AtomPadLEDState(
-                pad_note=pad_note,
-                state=self.LED_UNLIT,
-                color=AtomRGBColor(r=0, g=0, b=0)
-            )
+            led_state = AtomPadLEDState(pad_note=pad_note, state=self.LED_UNLIT, color=AtomRGBColor(r=0, g=0, b=0))
             for msg in led_state.to_messages():
                 send_message(msg)
 
         # Clear all button LEDs
         for btn_name, cc in self.BUTTON_CCS.items():
             if btn_name not in self.BUTTONS_NO_LED:
-                msg = mido.Message(
-                    'control_change',
-                    channel=0,
-                    control=cc,
-                    value=0
-                )
+                msg = mido.Message("control_change", channel=0, control=cc, value=0)
                 send_message(msg)
 
         # Switch back to MIDI mode (restore default behavior)
-        mode_msg = mido.Message(
-            'note_off',
-            channel=self.MODE_CHANNEL,
-            note=self.MODE_NOTE,
-            velocity=self.MODE_MIDI
-        )
+        mode_msg = mido.Message("note_off", channel=self.MODE_CHANNEL, note=self.MODE_NOTE, velocity=self.MODE_MIDI)
         send_message(mode_msg)
         logger.debug("Restored MIDI mode")
 
@@ -583,9 +554,9 @@ class PreSonusAtomPlugin(ControllerPlugin):
             pad_note = self.PAD_START_NOTE + pad_num - 1
 
             # Determine LED state and color
-            is_on = state_dict.get('is_on', False)
-            color_str = state_dict.get('color', 'off')
-            led_mode = state_dict.get('led_mode', 'solid')
+            is_on = state_dict.get("is_on", False)
+            color_str = state_dict.get("color", "off")
+            led_mode = state_dict.get("led_mode", "solid")
 
             # Parse color
             rgb_color = AtomRGBColor.from_string(color_str)
@@ -593,9 +564,9 @@ class PreSonusAtomPlugin(ControllerPlugin):
             # Map led_mode to Atom LED state value
             if is_on:
                 led_state_map = {
-                    'solid': self.LED_SOLID,    # 127
-                    'pulse': self.LED_BREATHE,  # 2
-                    'blink': self.LED_BLINK,    # 1
+                    "solid": self.LED_SOLID,  # 127
+                    "pulse": self.LED_BREATHE,  # 2
+                    "blink": self.LED_BLINK,  # 1
                 }
                 led_state_value = led_state_map.get(led_mode, self.LED_SOLID)
             else:
@@ -603,11 +574,7 @@ class PreSonusAtomPlugin(ControllerPlugin):
                 led_state_value = self.LED_SOLID
 
             # Build LED state message
-            led_state = AtomPadLEDState(
-                pad_note=pad_note,
-                state=led_state_value,
-                color=rgb_color
-            )
+            led_state = AtomPadLEDState(pad_note=pad_note, state=led_state_value, color=rgb_color)
             messages.extend(led_state.to_messages())
 
             # Track current color
@@ -619,15 +586,10 @@ class PreSonusAtomPlugin(ControllerPlugin):
                 return []  # No LED for this button
 
             cc = self.BUTTON_CCS[control_id]
-            is_on = state_dict.get('is_on', False)
+            is_on = state_dict.get("is_on", False)
             value = 127 if is_on else 0
 
-            msg = mido.Message(
-                'control_change',
-                channel=0,
-                control=cc,
-                value=value
-            )
+            msg = mido.Message("control_change", channel=0, control=cc, value=value)
             messages.append(msg)
 
         # Encoders have no feedback capability
@@ -650,7 +612,7 @@ class PreSonusAtomPlugin(ControllerPlugin):
             (control_id, value, signal_type) or None to use default mapping
         """
         # Handle encoder relative messages specially
-        if msg.type == 'control_change' and msg.channel == self.ENCODER_CHANNEL:
+        if msg.type == "control_change" and msg.channel == self.ENCODER_CHANNEL:
             cc = msg.control
             # Check if this is an encoder CC (14-17)
             if self.ENCODER_START_CC <= cc < self.ENCODER_START_CC + self.ENCODER_COUNT:

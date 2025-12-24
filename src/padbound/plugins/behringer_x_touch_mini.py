@@ -58,22 +58,22 @@ from typing import Callable, Optional
 
 import mido
 
-from ..plugin import (
-    ControllerPlugin,
-    MIDIMapping,
-    FeedbackMapping,
-    MIDIMessageType,
-)
 from ..controls import (
+    BankDefinition,
+    ControlCapabilities,
     ControlDefinition,
+    ControllerCapabilities,
     ControlState,
     ControlType,
     ControlTypeModes,
-    ControlCapabilities,
-    ControllerCapabilities,
-    BankDefinition,
 )
 from ..logging_config import get_logger
+from ..plugin import (
+    ControllerPlugin,
+    FeedbackMapping,
+    MIDIMapping,
+    MIDIMessageType,
+)
 
 logger = get_logger(__name__)
 
@@ -85,24 +85,24 @@ logger = get_logger(__name__)
 MIDI_CHANNEL = 10  # 0-indexed (channel 11 in user terms)
 
 # Layer A note mappings
-LAYER_A_KNOB_BUTTONS = list(range(0, 8))    # Notes 0-7
-LAYER_A_PADS_ROW1 = list(range(8, 16))      # Notes 8-15
-LAYER_A_PADS_ROW2 = list(range(16, 24))     # Notes 16-23
+LAYER_A_KNOB_BUTTONS = list(range(0, 8))  # Notes 0-7
+LAYER_A_PADS_ROW1 = list(range(8, 16))  # Notes 8-15
+LAYER_A_PADS_ROW2 = list(range(16, 24))  # Notes 16-23
 LAYER_A_PADS = LAYER_A_PADS_ROW1 + LAYER_A_PADS_ROW2  # Notes 8-23
 
 # Layer A CC mappings
-LAYER_A_KNOBS = list(range(1, 9))           # CC 1-8
-LAYER_A_FADER = 9                            # CC 9
+LAYER_A_KNOBS = list(range(1, 9))  # CC 1-8
+LAYER_A_FADER = 9  # CC 9
 
 # Layer B note mappings
 LAYER_B_KNOB_BUTTONS = list(range(24, 32))  # Notes 24-31
-LAYER_B_PADS_ROW1 = list(range(32, 40))     # Notes 32-39
-LAYER_B_PADS_ROW2 = list(range(40, 48))     # Notes 40-47
+LAYER_B_PADS_ROW1 = list(range(32, 40))  # Notes 32-39
+LAYER_B_PADS_ROW2 = list(range(40, 48))  # Notes 40-47
 LAYER_B_PADS = LAYER_B_PADS_ROW1 + LAYER_B_PADS_ROW2  # Notes 32-47
 
 # Layer B CC mappings
-LAYER_B_KNOBS = list(range(11, 19))         # CC 11-18
-LAYER_B_FADER = 10                           # CC 10
+LAYER_B_KNOBS = list(range(11, 19))  # CC 11-18
+LAYER_B_FADER = 10  # CC 10
 
 # All notes/CCs for quick lookup
 ALL_LAYER_A_NOTES = LAYER_A_KNOB_BUTTONS + LAYER_A_PADS  # 0-23
@@ -114,6 +114,7 @@ ALL_LAYER_B_CCS = LAYER_B_KNOBS + [LAYER_B_FADER]  # 10-18
 # =============================================================================
 # SysEx Protocol Constants (for reference/future use)
 # =============================================================================
+
 
 class XTouchMiniSysEx:
     """SysEx protocol constants for X-Touch Mini (reference)."""
@@ -129,6 +130,7 @@ class XTouchMiniSysEx:
 # =============================================================================
 # Plugin Implementation
 # =============================================================================
+
 
 class BehringerXTouchMiniPlugin(ControllerPlugin):
     """
@@ -173,7 +175,7 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
         """Return controller-level capabilities."""
         return ControllerCapabilities(
             supports_bank_feedback=False,  # Hardware manages bank LED
-            indexing_scheme="1d",           # Linear numbering
+            indexing_scheme="1d",  # Linear numbering
             supports_persistent_configuration=False,  # No SysEx config needed
         )
 
@@ -182,16 +184,8 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
         Define 2 banks (Layer A and Layer B).
         """
         return [
-            BankDefinition(
-                bank_id="layer_a",
-                control_type=ControlType.TOGGLE,
-                display_name="Layer A"
-            ),
-            BankDefinition(
-                bank_id="layer_b",
-                control_type=ControlType.TOGGLE,
-                display_name="Layer B"
-            ),
+            BankDefinition(bank_id="layer_a", control_type=ControlType.TOGGLE, display_name="Layer A"),
+            BankDefinition(bank_id="layer_b", control_type=ControlType.TOGGLE, display_name="Layer B"),
         ]
 
     def get_control_definitions(self) -> list[ControlDefinition]:
@@ -218,7 +212,7 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
                         ),
                         bank_id=layer,
                         display_name=f"{'A' if layer == 'layer_a' else 'B'} Knob Btn {i}",
-                    )
+                    ),
                 )
 
             # 16 pads per bank (TOGGLE with LED feedback, configurable to MOMENTARY)
@@ -241,7 +235,7 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
                         ),
                         bank_id=layer,
                         display_name=f"{'A' if layer == 'layer_a' else 'B'} Pad {i}",
-                    )
+                    ),
                 )
 
             # 8 knobs per bank (CONTINUOUS, LED rings auto-reflect)
@@ -260,7 +254,7 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
                         min_value=0,
                         max_value=127,
                         display_name=f"{'A' if layer == 'layer_a' else 'B'} Knob {i}",
-                    )
+                    ),
                 )
 
             # 1 fader per bank (CONTINUOUS, read-only)
@@ -278,7 +272,7 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
                     min_value=0,
                     max_value=127,
                     display_name=f"{'A' if layer == 'layer_a' else 'B'} Fader",
-                )
+                ),
             )
 
         return definitions
@@ -296,41 +290,45 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
 
         # Knob buttons (Notes 0-7)
         for i, note in enumerate(LAYER_A_KNOB_BUTTONS, start=1):
-            mappings.extend([
-                MIDIMapping(
-                    message_type=MIDIMessageType.NOTE_ON,
-                    channel=MIDI_CHANNEL,
-                    note=note,
-                    control_id=f"knob_button_{i}@{layer}",
-                    signal_type="note",
-                ),
-                MIDIMapping(
-                    message_type=MIDIMessageType.NOTE_OFF,
-                    channel=MIDI_CHANNEL,
-                    note=note,
-                    control_id=f"knob_button_{i}@{layer}",
-                    signal_type="note",
-                ),
-            ])
+            mappings.extend(
+                [
+                    MIDIMapping(
+                        message_type=MIDIMessageType.NOTE_ON,
+                        channel=MIDI_CHANNEL,
+                        note=note,
+                        control_id=f"knob_button_{i}@{layer}",
+                        signal_type="note",
+                    ),
+                    MIDIMapping(
+                        message_type=MIDIMessageType.NOTE_OFF,
+                        channel=MIDI_CHANNEL,
+                        note=note,
+                        control_id=f"knob_button_{i}@{layer}",
+                        signal_type="note",
+                    ),
+                ],
+            )
 
         # Pads (Notes 8-23) - NOTE_ON and NOTE_OFF for both TOGGLE and MOMENTARY support
         for i, note in enumerate(LAYER_A_PADS, start=1):
-            mappings.extend([
-                MIDIMapping(
-                    message_type=MIDIMessageType.NOTE_ON,
-                    channel=MIDI_CHANNEL,
-                    note=note,
-                    control_id=f"pad_{i}@{layer}",
-                    signal_type="note",
-                ),
-                MIDIMapping(
-                    message_type=MIDIMessageType.NOTE_OFF,
-                    channel=MIDI_CHANNEL,
-                    note=note,
-                    control_id=f"pad_{i}@{layer}",
-                    signal_type="note",
-                ),
-            ])
+            mappings.extend(
+                [
+                    MIDIMapping(
+                        message_type=MIDIMessageType.NOTE_ON,
+                        channel=MIDI_CHANNEL,
+                        note=note,
+                        control_id=f"pad_{i}@{layer}",
+                        signal_type="note",
+                    ),
+                    MIDIMapping(
+                        message_type=MIDIMessageType.NOTE_OFF,
+                        channel=MIDI_CHANNEL,
+                        note=note,
+                        control_id=f"pad_{i}@{layer}",
+                        signal_type="note",
+                    ),
+                ],
+            )
 
         # Knobs (CC 1-8)
         for i, cc in enumerate(LAYER_A_KNOBS, start=1):
@@ -341,7 +339,7 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
                     control=cc,
                     control_id=f"knob_{i}@{layer}",
                     signal_type="cc",
-                )
+                ),
             )
 
         # Fader (CC 9)
@@ -352,7 +350,7 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
                 control=LAYER_A_FADER,
                 control_id=f"fader@{layer}",
                 signal_type="cc",
-            )
+            ),
         )
 
         # Layer B mappings
@@ -360,41 +358,45 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
 
         # Knob buttons (Notes 24-31)
         for i, note in enumerate(LAYER_B_KNOB_BUTTONS, start=1):
-            mappings.extend([
-                MIDIMapping(
-                    message_type=MIDIMessageType.NOTE_ON,
-                    channel=MIDI_CHANNEL,
-                    note=note,
-                    control_id=f"knob_button_{i}@{layer}",
-                    signal_type="note",
-                ),
-                MIDIMapping(
-                    message_type=MIDIMessageType.NOTE_OFF,
-                    channel=MIDI_CHANNEL,
-                    note=note,
-                    control_id=f"knob_button_{i}@{layer}",
-                    signal_type="note",
-                ),
-            ])
+            mappings.extend(
+                [
+                    MIDIMapping(
+                        message_type=MIDIMessageType.NOTE_ON,
+                        channel=MIDI_CHANNEL,
+                        note=note,
+                        control_id=f"knob_button_{i}@{layer}",
+                        signal_type="note",
+                    ),
+                    MIDIMapping(
+                        message_type=MIDIMessageType.NOTE_OFF,
+                        channel=MIDI_CHANNEL,
+                        note=note,
+                        control_id=f"knob_button_{i}@{layer}",
+                        signal_type="note",
+                    ),
+                ],
+            )
 
         # Pads (Notes 32-47) - NOTE_ON and NOTE_OFF for both TOGGLE and MOMENTARY support
         for i, note in enumerate(LAYER_B_PADS, start=1):
-            mappings.extend([
-                MIDIMapping(
-                    message_type=MIDIMessageType.NOTE_ON,
-                    channel=MIDI_CHANNEL,
-                    note=note,
-                    control_id=f"pad_{i}@{layer}",
-                    signal_type="note",
-                ),
-                MIDIMapping(
-                    message_type=MIDIMessageType.NOTE_OFF,
-                    channel=MIDI_CHANNEL,
-                    note=note,
-                    control_id=f"pad_{i}@{layer}",
-                    signal_type="note",
-                ),
-            ])
+            mappings.extend(
+                [
+                    MIDIMapping(
+                        message_type=MIDIMessageType.NOTE_ON,
+                        channel=MIDI_CHANNEL,
+                        note=note,
+                        control_id=f"pad_{i}@{layer}",
+                        signal_type="note",
+                    ),
+                    MIDIMapping(
+                        message_type=MIDIMessageType.NOTE_OFF,
+                        channel=MIDI_CHANNEL,
+                        note=note,
+                        control_id=f"pad_{i}@{layer}",
+                        signal_type="note",
+                    ),
+                ],
+            )
 
         # Knobs (CC 11-18)
         for i, cc in enumerate(LAYER_B_KNOBS, start=1):
@@ -405,7 +407,7 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
                     control=cc,
                     control_id=f"knob_{i}@{layer}",
                     signal_type="cc",
-                )
+                ),
             )
 
         # Fader (CC 10)
@@ -416,7 +418,7 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
                 control=LAYER_B_FADER,
                 control_id=f"fader@{layer}",
                 signal_type="cc",
-            )
+            ),
         )
 
         return mappings
@@ -442,7 +444,7 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
                     channel=MIDI_CHANNEL,
                     note=note,
                     value_source="is_on",
-                )
+                ),
             )
 
         # Pads (Notes 8-23)
@@ -454,7 +456,7 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
                     channel=MIDI_CHANNEL,
                     note=note,
                     value_source="is_on",
-                )
+                ),
             )
 
         # Knobs (CC 1-8) - for initialization to center
@@ -466,7 +468,7 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
                     channel=MIDI_CHANNEL,
                     control=cc,
                     value_source="value",
-                )
+                ),
             )
 
         # Layer B feedback
@@ -481,7 +483,7 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
                     channel=MIDI_CHANNEL,
                     note=note,
                     value_source="is_on",
-                )
+                ),
             )
 
         # Pads (Notes 32-47)
@@ -493,7 +495,7 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
                     channel=MIDI_CHANNEL,
                     note=note,
                     value_source="is_on",
-                )
+                ),
             )
 
         # Knobs (CC 11-18) - for initialization to center
@@ -505,7 +507,7 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
                     channel=MIDI_CHANNEL,
                     control=cc,
                     value_source="value",
-                )
+                ),
             )
 
         return mappings
@@ -513,7 +515,7 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
     def init(
         self,
         send_message: Callable[[mido.Message], None],
-        receive_message: Callable[[float], Optional[mido.Message]] = None
+        receive_message: Callable[[float], Optional[mido.Message]] = None,
     ) -> dict[str, int]:
         """
         Initialize X-Touch Mini to known state.
@@ -541,17 +543,17 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
 
         # Turn off all pad LEDs for both layers
         for note in LAYER_A_PADS + LAYER_B_PADS:
-            msg = mido.Message('note_on', channel=MIDI_CHANNEL, note=note, velocity=0)
+            msg = mido.Message("note_on", channel=MIDI_CHANNEL, note=note, velocity=0)
             send_message(msg)
 
         # Turn off all knob-button LEDs for both layers
         for note in LAYER_A_KNOB_BUTTONS + LAYER_B_KNOB_BUTTONS:
-            msg = mido.Message('note_on', channel=MIDI_CHANNEL, note=note, velocity=0)
+            msg = mido.Message("note_on", channel=MIDI_CHANNEL, note=note, velocity=0)
             send_message(msg)
 
         # Initialize all knobs to center position (64) for both layers
         for cc in LAYER_A_KNOBS + LAYER_B_KNOBS:
-            msg = mido.Message('control_change', channel=MIDI_CHANNEL, control=cc, value=64)
+            msg = mido.Message("control_change", channel=MIDI_CHANNEL, control=cc, value=64)
             send_message(msg)
 
         # Set initial active bank (assume Layer A)
@@ -570,12 +572,12 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
 
         # Turn off all pad LEDs
         for note in LAYER_A_PADS + LAYER_B_PADS:
-            msg = mido.Message('note_on', channel=MIDI_CHANNEL, note=note, velocity=0)
+            msg = mido.Message("note_on", channel=MIDI_CHANNEL, note=note, velocity=0)
             send_message(msg)
 
         # Turn off all knob-button LEDs
         for note in LAYER_A_KNOB_BUTTONS + LAYER_B_KNOB_BUTTONS:
-            msg = mido.Message('note_on', channel=MIDI_CHANNEL, note=note, velocity=0)
+            msg = mido.Message("note_on", channel=MIDI_CHANNEL, note=note, velocity=0)
             send_message(msg)
 
         logger.info("X-Touch Mini shutdown complete")
@@ -599,7 +601,7 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
             (control_id, value, signal_type) or None
         """
         # Handle Note Off for pads - send deferred feedback, skip callbacks
-        if msg.type == 'note_off' and msg.channel == MIDI_CHANNEL:
+        if msg.type == "note_off" and msg.channel == MIDI_CHANNEL:
             control_id = self._note_to_pad_control.get(msg.note)
             if control_id and control_id in self._pending_feedback:
                 # Send deferred LED feedback
@@ -607,10 +609,7 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
                 feedback_note = self._get_feedback_note(control_id)
                 if feedback_note is not None and self._send_message:
                     velocity = 127 if is_on else 0
-                    feedback_msg = mido.Message(
-                        'note_on', channel=MIDI_CHANNEL,
-                        note=feedback_note, velocity=velocity
-                    )
+                    feedback_msg = mido.Message("note_on", channel=MIDI_CHANNEL, note=feedback_note, velocity=velocity)
                     logger.info(f"DEFERRED FEEDBACK: {control_id} -> note={feedback_note} velocity={velocity}")
                     self._send_message(feedback_msg)
                 return None  # Skip normal processing - no callbacks
@@ -634,14 +633,14 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
         Returns:
             Bank ID ("layer_a" or "layer_b") or None if can't determine
         """
-        if msg.type in ('note_on', 'note_off'):
+        if msg.type in ("note_on", "note_off"):
             note = msg.note
             if note in ALL_LAYER_A_NOTES:
                 return "layer_a"
             elif note in ALL_LAYER_B_NOTES:
                 return "layer_b"
 
-        elif msg.type == 'control_change':
+        elif msg.type == "control_change":
             cc = msg.control
             if cc in ALL_LAYER_A_CCS:
                 return "layer_a"
@@ -705,9 +704,7 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
 
         return None  # Use default behavior for MOMENTARY pads and other controls
 
-    def translate_feedback(
-        self, control_id: str, state_dict: dict
-    ) -> list[mido.Message]:
+    def translate_feedback(self, control_id: str, state_dict: dict) -> list[mido.Message]:
         """
         Translate control state to MIDI feedback messages.
 
@@ -738,7 +735,7 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
                 note = self._get_feedback_note(control_id)
                 if note is not None:
                     velocity = 127 if is_on else 0
-                    msg = mido.Message('note_on', channel=MIDI_CHANNEL, note=note, velocity=velocity)
+                    msg = mido.Message("note_on", channel=MIDI_CHANNEL, note=note, velocity=velocity)
                     logger.debug(f"MOMENTARY FEEDBACK: {control_id} -> note={note} velocity={velocity}")
                     messages.append(msg)
                 return messages
@@ -748,7 +745,7 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
             note = self._get_feedback_note(control_id)
             if note is not None:
                 velocity = 127 if is_on else 0
-                msg = mido.Message('note_on', channel=MIDI_CHANNEL, note=note, velocity=velocity)
+                msg = mido.Message("note_on", channel=MIDI_CHANNEL, note=note, velocity=velocity)
                 logger.info(f"FEEDBACK: {control_id} -> note={note} velocity={velocity}")
                 messages.append(msg)
 
@@ -757,7 +754,7 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
             value = state_dict.get("value", 64) or 64
             cc = self._get_feedback_cc(control_id)
             if cc is not None:
-                msg = mido.Message('control_change', channel=MIDI_CHANNEL, control=cc, value=value)
+                msg = mido.Message("control_change", channel=MIDI_CHANNEL, control=cc, value=value)
                 messages.append(msg)
 
         return messages

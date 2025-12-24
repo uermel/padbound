@@ -9,7 +9,7 @@ import threading
 from collections import defaultdict
 from typing import Callable, Optional
 
-from .controls import ControlType, ControlState
+from .controls import ControlState, ControlType
 from .logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -61,14 +61,9 @@ class CallbackManager:
         """
         with self._lock:
             self._global_callbacks.append((callback, signal_type))
-            logger.debug(
-                f"Registered global callback: {callback.__name__} "
-                f"(signal_type: {signal_type or 'all'})"
-            )
+            logger.debug(f"Registered global callback: {callback.__name__} (signal_type: {signal_type or 'all'})")
 
-    def register_control(
-        self, control_id: str, callback: ControlCallback, signal_type: Optional[str] = None
-    ) -> None:
+    def register_control(self, control_id: str, callback: ControlCallback, signal_type: Optional[str] = None) -> None:
         """
         Register callback for specific control.
 
@@ -81,11 +76,14 @@ class CallbackManager:
             self._control_callbacks[control_id].append((callback, signal_type))
             logger.debug(
                 f"Registered callback for control '{control_id}': {callback.__name__} "
-                f"(signal_type: {signal_type or 'all'})"
+                f"(signal_type: {signal_type or 'all'})",
             )
 
     def register_type(
-        self, control_type: ControlType, callback: TypeCallback, signal_type: Optional[str] = None
+        self,
+        control_type: ControlType,
+        callback: TypeCallback,
+        signal_type: Optional[str] = None,
     ) -> None:
         """
         Register callback for all controls of a type.
@@ -99,12 +97,10 @@ class CallbackManager:
             self._type_callbacks[control_type].append((callback, signal_type))
             logger.debug(
                 f"Registered callback for type '{control_type}': {callback.__name__} "
-                f"(signal_type: {signal_type or 'all'})"
+                f"(signal_type: {signal_type or 'all'})",
             )
 
-    def register_category(
-        self, category: str, callback: CategoryCallback, signal_type: Optional[str] = None
-    ) -> None:
+    def register_category(self, category: str, callback: CategoryCallback, signal_type: Optional[str] = None) -> None:
         """
         Register callback for all controls in a category.
 
@@ -117,7 +113,7 @@ class CallbackManager:
             self._category_callbacks[category].append((callback, signal_type))
             logger.debug(
                 f"Registered callback for category '{category}': {callback.__name__} "
-                f"(signal_type: {signal_type or 'all'})"
+                f"(signal_type: {signal_type or 'all'})",
             )
 
     def register_bank(self, control_type: ControlType, callback: BankCallback) -> None:
@@ -170,9 +166,7 @@ class CallbackManager:
                 for i, (cb, _) in enumerate(callbacks):
                     if cb == callback:
                         callbacks.pop(i)
-                        logger.debug(
-                            f"Unregistered callback for control '{control_id}': {callback.__name__}"
-                        )
+                        logger.debug(f"Unregistered callback for control '{control_id}': {callback.__name__}")
                         return True
         return False
 
@@ -193,9 +187,7 @@ class CallbackManager:
                 for i, (cb, _) in enumerate(callbacks):
                     if cb == callback:
                         callbacks.pop(i)
-                        logger.debug(
-                            f"Unregistered callback for type '{control_type}': {callback.__name__}"
-                        )
+                        logger.debug(f"Unregistered callback for type '{control_type}': {callback.__name__}")
                         return True
         return False
 
@@ -216,9 +208,7 @@ class CallbackManager:
                 for i, (cb, _) in enumerate(callbacks):
                     if cb == callback:
                         callbacks.pop(i)
-                        logger.debug(
-                            f"Unregistered callback for category '{category}': {callback.__name__}"
-                        )
+                        logger.debug(f"Unregistered callback for category '{category}': {callback.__name__}")
                         return True
         return False
 
@@ -238,9 +228,7 @@ class CallbackManager:
                 callbacks = self._bank_callbacks[control_type]
                 if callback in callbacks:
                     callbacks.remove(callback)
-                    logger.debug(
-                        f"Unregistered bank callback for type '{control_type}': {callback.__name__}"
-                    )
+                    logger.debug(f"Unregistered bank callback for type '{control_type}': {callback.__name__}")
                     return True
         return False
 
@@ -252,7 +240,7 @@ class CallbackManager:
         state: ControlState,
         control_type: ControlType,
         signal_type: str = "default",
-        category: Optional[str] = None
+        category: Optional[str] = None,
     ) -> None:
         """
         Dispatch callbacks for a control change with signal type filtering.
@@ -336,11 +324,8 @@ class CallbackManager:
             callback(*args)
         except Exception as e:
             # Get callback name for logging
-            callback_name = getattr(callback, '__name__', repr(callback))
-            logger.error(
-                f"Error in callback '{callback_name}': {e}",
-                exc_info=True
-            )
+            callback_name = getattr(callback, "__name__", repr(callback))
+            logger.exception(f"Error in callback '{callback_name}': {e}")
             # Continue with other callbacks
 
     # Utility methods

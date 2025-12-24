@@ -235,25 +235,28 @@ References:
 """
 
 import time
-from typing import Optional, Callable
+from typing import TYPE_CHECKING, Callable, Optional
 
 import mido
 from pydantic import BaseModel, Field
 
+if TYPE_CHECKING:
+    from ..config import BankConfig, ControllerConfig
+
+from ..controls import (
+    BankDefinition,
+    ControlCapabilities,
+    ControlDefinition,
+    ControllerCapabilities,
+    ControlType,
+    ControlTypeModes,
+)
+from ..logging_config import get_logger
 from ..plugin import (
     ControllerPlugin,
     MIDIMapping,
     MIDIMessageType,
 )
-from ..controls import (
-    ControlDefinition,
-    ControlType,
-    ControlCapabilities,
-    ControlTypeModes,
-    ControllerCapabilities,
-    BankDefinition,
-)
-from ..logging_config import get_logger
 from ..utils import RGBColor
 
 logger = get_logger(__name__)
@@ -293,6 +296,7 @@ class LPD8MK2RGBColor(RGBColor):
 
 class LPD8MK2PadConfig(BaseModel):
     """Configuration for a single LPD8 MK2 pad (16 bytes in SysEx)."""
+
     note: int = Field(ge=0, le=127, description="MIDI note number")
     cc: int = Field(ge=0, le=127, description="CC number")
     pcn: int = Field(ge=0, le=127, description="Program change number")
@@ -312,6 +316,7 @@ class LPD8MK2PadConfig(BaseModel):
 
 class LPD8MK2KnobConfig(BaseModel):
     """Configuration for a single LPD8 MK2 knob (4 bytes in SysEx)."""
+
     cc: int = Field(ge=0, le=127, description="CC number")
     channel: int = Field(ge=0, le=15, description="MIDI channel (0-indexed)")
     min_value: int = Field(ge=0, le=127, default=0, description="Minimum value")
@@ -326,6 +331,7 @@ class LPD8MK2KnobConfig(BaseModel):
 
 class LPD8MK2ProgramConfig(BaseModel):
     """Complete LPD8 MK2 program configuration (program 1-4)."""
+
     program_num: int = Field(ge=1, le=4, description="Program number (1-4)")
     channel: int = Field(ge=0, le=15, description="Global MIDI channel (0-indexed)")
     pressure_mode: int = Field(ge=0, le=2, default=0, description="0=off, 1=channel, 2=poly")
@@ -349,13 +355,15 @@ class LPD8MK2ProgramConfig(BaseModel):
         ]
 
         # Program configuration (5 bytes)
-        data.extend([
-            self.program_num,
-            self.channel,
-            self.pressure_mode,
-            self.full_level,
-            0x01 if self.toggle_mode else 0x00,
-        ])
+        data.extend(
+            [
+                self.program_num,
+                self.channel,
+                self.pressure_mode,
+                self.full_level,
+                0x01 if self.toggle_mode else 0x00,
+            ],
+        )
 
         # 8 pads (16 bytes each)
         for pad in self.pads:
@@ -365,11 +373,12 @@ class LPD8MK2ProgramConfig(BaseModel):
         for knob in self.knobs:
             data.extend(knob.to_sysex_bytes())
 
-        return mido.Message('sysex', data=data)
+        return mido.Message("sysex", data=data)
 
 
 class LPD8MK2LEDUpdate(BaseModel):
     """RGB LED update for all 8 pads (0x06 command)."""
+
     pad_colors: list[LPD8MK2RGBColor] = Field(min_length=8, max_length=8, description="8 pad colors")
 
     def to_sysex_message(self) -> mido.Message:
@@ -390,7 +399,7 @@ class LPD8MK2LEDUpdate(BaseModel):
         for color in self.pad_colors:
             data.extend(color.to_sysex_bytes_midi())
 
-        return mido.Message('sysex', data=data)
+        return mido.Message("sysex", data=data)
 
 
 class AkaiLPD8MK2Plugin(ControllerPlugin):
@@ -413,29 +422,29 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
 
     # MIDI configuration (factory defaults)
     PAD_START_NOTE = 36  # Note mode: Pad 1 = MIDI note 36
-    PAD_CC_START = 36    # CC mode: Pad 1 = CC 36 (if configured on hardware)
-    KNOB_START_CC = 1    # Knob 1 = CC 1
+    PAD_CC_START = 36  # CC mode: Pad 1 = CC 36 (if configured on hardware)
+    KNOB_START_CC = 1  # Knob 1 = CC 1
 
     # SysEx configuration
     SYSEX_MANUFACTURER = 0x47  # Akai
-    SYSEX_DEVICE_ID = 0x7F     # All devices
-    SYSEX_PRODUCT_ID = 0x4C    # LPD8 MK2
+    SYSEX_DEVICE_ID = 0x7F  # All devices
+    SYSEX_PRODUCT_ID = 0x4C  # LPD8 MK2
 
     # SysEx commands
-    SYSEX_SEND_PROGRAM_CMD = 0x01    # Send program configuration (write)
-    SYSEX_GET_PROGRAM_CMD = 0x03     # Get program configuration (read)
+    SYSEX_SEND_PROGRAM_CMD = 0x01  # Send program configuration (write)
+    SYSEX_GET_PROGRAM_CMD = 0x03  # Get program configuration (read)
     SYSEX_GET_ACTIVE_PROGRAM = 0x04  # Get currently active program number
-    SYSEX_GET_LED_STATE = 0x05       # Get current LED colors
-    SYSEX_LED_CMD = 0x06             # Pad LED color update (write)
+    SYSEX_GET_LED_STATE = 0x05  # Get current LED colors
+    SYSEX_LED_CMD = 0x06  # Pad LED color update (write)
     SYSEX_LED_SUBID = [0x00, 0x30]
 
     # Bank to MIDI channel mapping (0-indexed: channel 1 = 0)
     # Programs are configured to use different channels for MIDI routing
     BANK_CHANNELS = {
-        "bank_1": 0,   # Program 1 → MIDI Channel 1
-        "bank_2": 1,   # Program 2 → MIDI Channel 2
-        "bank_3": 2,   # Program 3 → MIDI Channel 3
-        "bank_4": 3,   # Program 4 → MIDI Channel 4
+        "bank_1": 0,  # Program 1 → MIDI Channel 1
+        "bank_2": 1,  # Program 2 → MIDI Channel 2
+        "bank_3": 2,  # Program 3 → MIDI Channel 3
+        "bank_4": 3,  # Program 4 → MIDI Channel 4
     }
 
     def __init__(self):
@@ -463,10 +472,10 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
     def get_capabilities(self) -> ControllerCapabilities:
         """Return controller-level capabilities."""
         return ControllerCapabilities(
-            supports_bank_feedback=True,            # Via active program query
-            indexing_scheme="1d",                   # Linear pad/knob numbering
-            supports_persistent_configuration=True, # Supports SysEx programming
-            requires_initialization_handshake=False # Can query current program directly!
+            supports_bank_feedback=True,  # Via active program query
+            indexing_scheme="1d",  # Linear pad/knob numbering
+            supports_persistent_configuration=True,  # Supports SysEx programming
+            requires_initialization_handshake=False,  # Can query current program directly!
         )
 
     def get_bank_definitions(self) -> list[BankDefinition]:
@@ -480,7 +489,7 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
             BankDefinition(
                 bank_id=f"bank_{i}",
                 control_type=ControlType.TOGGLE,  # Primary control type (pads)
-                display_name=f"Bank {i}"
+                display_name=f"Bank {i}",
             )
             for i in range(1, self.BANK_COUNT + 1)
         ]
@@ -520,7 +529,7 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
                         bank_id=bank_id,
                         display_name=f"B{bank_num} Pad {pad_num}",
                         signal_types=["note", "cc", "pc"],  # Supports all 3 signal modes
-                    )
+                    ),
                 )
 
             # 8 knobs (continuous, read-only)
@@ -537,7 +546,7 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
                         min_value=0,
                         max_value=127,
                         display_name=f"B{bank_num} Knob {knob_num}",
-                    )
+                    ),
                 )
 
         return definitions
@@ -563,25 +572,27 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
             for pad_num in range(1, self.PAD_COUNT + 1):
                 control_id = f"pad_{pad_num}@{bank_id}"
                 midi_note = self.PAD_START_NOTE + pad_num - 1  # Notes 36-43
-                midi_cc = self.PAD_CC_START + pad_num - 1       # CCs 36-43 (if configured)
+                midi_cc = self.PAD_CC_START + pad_num - 1  # CCs 36-43 (if configured)
 
                 # NOTE mode (default hardware configuration)
-                mappings.extend([
-                    MIDIMapping(
-                        message_type=MIDIMessageType.NOTE_ON,
-                        channel=channel,
-                        note=midi_note,
-                        control_id=control_id,
-                        signal_type="note",
-                    ),
-                    MIDIMapping(
-                        message_type=MIDIMessageType.NOTE_OFF,
-                        channel=channel,
-                        note=midi_note,
-                        control_id=control_id,
-                        signal_type="note",
-                    ),
-                ])
+                mappings.extend(
+                    [
+                        MIDIMapping(
+                            message_type=MIDIMessageType.NOTE_ON,
+                            channel=channel,
+                            note=midi_note,
+                            control_id=control_id,
+                            signal_type="note",
+                        ),
+                        MIDIMapping(
+                            message_type=MIDIMessageType.NOTE_OFF,
+                            channel=channel,
+                            note=midi_note,
+                            control_id=control_id,
+                            signal_type="note",
+                        ),
+                    ],
+                )
 
                 # CC mode (if hardware configured to send CCs)
                 mappings.append(
@@ -591,7 +602,7 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
                         control=midi_cc,
                         control_id=control_id,
                         signal_type="cc",
-                    )
+                    ),
                 )
 
                 # PC mode (if hardware configured to send Program Changes)
@@ -602,7 +613,7 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
                         channel=channel,
                         control_id=control_id,
                         signal_type="pc",
-                    )
+                    ),
                 )
 
             # Knob mappings (always CC mode)
@@ -617,7 +628,7 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
                         control=knob_cc,
                         control_id=control_id,
                         signal_type="default",  # Knobs only have one signal mode
-                    )
+                    ),
                 )
 
         return mappings
@@ -633,7 +644,7 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
         Returns:
             (control_id, value, signal_type) or None
         """
-        if hasattr(msg, 'channel'):
+        if hasattr(msg, "channel"):
             channel = msg.channel
             known_channels = set(self.BANK_CHANNELS.values())
 
@@ -649,9 +660,7 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
                 # Unexpected channel - query device for active program
                 logger.debug(f"Unexpected channel {channel}, querying active program")
                 if self._send_message and self._receive_message:
-                    program = self._query_active_program(
-                        self._send_message, self._receive_message
-                    )
+                    program = self._query_active_program(self._send_message, self._receive_message)
                     new_bank = f"bank_{program}"
                     if new_bank != self._last_active_bank:
                         logger.info(f"LPD8 MK2 bank detected via 0x04: {new_bank}")
@@ -679,7 +688,7 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
         bank_id = self._last_active_bank
 
         # Handle note messages (pads)
-        if msg.type in ('note_on', 'note_off'):
+        if msg.type in ("note_on", "note_off"):
             note = msg.note
             # Check if it's a pad note (36-43)
             if self.PAD_START_NOTE <= note < self.PAD_START_NOTE + self.PAD_COUNT:
@@ -689,7 +698,7 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
                 return (control_id, value, "note")
 
         # Handle CC messages (knobs or pads in CC mode)
-        elif msg.type == 'control_change':
+        elif msg.type == "control_change":
             cc = msg.control
 
             # Check if it's a knob CC (1-8)
@@ -705,7 +714,7 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
                 return (control_id, msg.value, "cc")
 
         # Handle program change messages (pads in PC mode)
-        elif msg.type == 'program_change':
+        elif msg.type == "program_change":
             # PC messages from pads - route to active bank
             # Note: PC mode sends program numbers 0-7 for pads 1-8
             program = msg.program
@@ -719,7 +728,7 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
     def _query_active_program(
         self,
         send_message: Callable[[mido.Message], None],
-        receive_message: Callable[[float], Optional[mido.Message]]
+        receive_message: Callable[[float], Optional[mido.Message]],
     ) -> int:
         """
         Query device for currently active program number.
@@ -735,14 +744,17 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
             Program number (1-4), defaults to 1 if query fails
         """
         # Build query: F0 47 7F 4C 04 00 00 F7
-        query = mido.Message('sysex', data=[
-            self.SYSEX_MANUFACTURER,
-            self.SYSEX_DEVICE_ID,
-            self.SYSEX_PRODUCT_ID,
-            self.SYSEX_GET_ACTIVE_PROGRAM,
-            0x00,
-            0x00,
-        ])
+        query = mido.Message(
+            "sysex",
+            data=[
+                self.SYSEX_MANUFACTURER,
+                self.SYSEX_DEVICE_ID,
+                self.SYSEX_PRODUCT_ID,
+                self.SYSEX_GET_ACTIVE_PROGRAM,
+                0x00,
+                0x00,
+            ],
+        )
 
         logger.debug("Querying LPD8 MK2 for active program...")
         send_message(query)
@@ -750,13 +762,15 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
         # Wait for response: F0 47 7F 4C 04 00 01 <prog> F7
         response = receive_message(0.5)  # 500ms timeout
 
-        if response and response.type == 'sysex':
+        if response and response.type == "sysex":
             data = list(response.data)
             # Expected: [47, 7F, 4C, 04, 00, 01, <prog>]
-            if (len(data) >= 7 and
-                data[0] == self.SYSEX_MANUFACTURER and
-                data[2] == self.SYSEX_PRODUCT_ID and
-                data[3] == self.SYSEX_GET_ACTIVE_PROGRAM):
+            if (
+                len(data) >= 7
+                and data[0] == self.SYSEX_MANUFACTURER
+                and data[2] == self.SYSEX_PRODUCT_ID
+                and data[3] == self.SYSEX_GET_ACTIVE_PROGRAM
+            ):
                 program = data[6]
                 if 1 <= program <= 4:
                     logger.debug(f"LPD8 MK2 active program: {program}")
@@ -773,7 +787,7 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
     def init(
         self,
         send_message: Callable[[mido.Message], None],
-        receive_message: Callable[[float], Optional[mido.Message]]
+        receive_message: Callable[[float], Optional[mido.Message]],
     ) -> None:
         """
         Initialize LPD8 MK2 to known state.
@@ -818,7 +832,7 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
             program_sysex = self._build_program_config_sysex(
                 program_num=bank_num,
                 channel=channel,
-                bank_config=None  # Use defaults during init
+                bank_config=None,  # Use defaults during init
             )
             send_message(program_sysex)
 
@@ -842,19 +856,14 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
             logger.debug(
                 f"Restoring Program {program.program_num} to factory defaults: "
                 f"channel {program.channel + 1}, "
-                f"{'TOGGLE' if program.toggle_mode else 'MOMENTARY'} mode"
+                f"{'TOGGLE' if program.toggle_mode else 'MOMENTARY'} mode",
             )
             send_message(program.to_sysex_message())
             time.sleep(0.1)
 
         logger.info("LPD8 MK2 shutdown complete: factory defaults restored")
 
-    def validate_bank_config(
-        self,
-        bank_id: str,
-        bank_config: 'BankConfig',
-        strict_mode: bool = True
-    ) -> None:
+    def validate_bank_config(self, bank_id: str, bank_config: "BankConfig", strict_mode: bool = True) -> None:
         """
         Validate toggle_mode consistency for LPD8 MK2.
 
@@ -893,11 +902,7 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
                 else:
                     logger.warning(msg)
 
-    def configure_programs(
-        self,
-        send_message: Callable[[mido.Message], None],
-        config: 'ControllerConfig'
-    ) -> None:
+    def configure_programs(self, send_message: Callable[[mido.Message], None], config: "ControllerConfig") -> None:
         """
         Program all 4 LPD8 MK2 programs with persistent configuration.
 
@@ -912,7 +917,6 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
             send_message: Function to send MIDI messages
             config: Full controller configuration with resolved settings
         """
-        from ..config import ControllerConfig
 
         if not config or not config.banks:
             logger.debug("No configuration provided, using defaults")
@@ -931,13 +935,11 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
             # Log what we're configuring
             if bank_config:
                 color_count = sum(
-                    1 for ctrl_id, ctrl_cfg in bank_config.controls.items()
+                    1
+                    for ctrl_id, ctrl_cfg in bank_config.controls.items()
                     if ctrl_id.startswith("pad_") and ctrl_cfg.color
                 )
-                logger.info(
-                    f"Configuring Program {program_num}: "
-                    f"channel {channel + 1}, {color_count} pad colors"
-                )
+                logger.info(f"Configuring Program {program_num}: channel {channel + 1}, {color_count} pad colors")
             else:
                 logger.info(f"Configuring Program {program_num}: channel {channel + 1} (defaults)")
 
@@ -945,7 +947,7 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
             program_sysex = self._build_program_config_sysex(
                 program_num=program_num,
                 channel=channel,
-                bank_config=bank_config
+                bank_config=bank_config,
             )
             send_message(program_sysex)
 
@@ -1001,8 +1003,8 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
         rgb_values = list(self._current_led_colors)
 
         # Determine new color for this pad based on state
-        is_on = state_dict.get('is_on', False)
-        color = state_dict.get('color')
+        is_on = state_dict.get("is_on", False)
+        color = state_dict.get("color")
 
         if is_on and color:
             rgb_color = LPD8MK2RGBColor.from_string(color)
@@ -1033,17 +1035,14 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
             SysEx MIDI message
         """
         # Convert MIDI range tuples to LPD8MK2RGBColor objects
-        colors = [
-            LPD8MK2RGBColor.from_midi_values(r, g, b)
-            for r, g, b in rgb_data
-        ]
+        colors = [LPD8MK2RGBColor.from_midi_values(r, g, b) for r, g, b in rgb_data]
 
         led_update = LPD8MK2LEDUpdate(pad_colors=colors)
         return led_update.to_sysex_message()
 
     def _get_pad_colors_for_bank(
         self,
-        bank_config: Optional['BankConfig']
+        bank_config: Optional["BankConfig"],
     ) -> list[tuple[LPD8MK2RGBColor, LPD8MK2RGBColor]]:
         """
         Extract 8 pad colors from bank config with defaults.
@@ -1083,10 +1082,7 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
 
         return colors
 
-    def _get_control_types_for_bank(
-        self,
-        bank_config: Optional['BankConfig']
-    ) -> bool:
+    def _get_control_types_for_bank(self, bank_config: Optional["BankConfig"]) -> bool:
         """
         Get toggle mode for bank.
 
@@ -1109,7 +1105,7 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
     def _apply_led_colors_directly(
         self,
         send_message: Callable[[mido.Message], None],
-        bank_config: Optional['BankConfig']
+        bank_config: Optional["BankConfig"],
     ) -> None:
         """
         Send direct LED update to immediately show colors for a bank.
@@ -1132,9 +1128,7 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
         send_message(led_update.to_sysex_message())
 
         # Update internal LED state tracking
-        self._current_led_colors = [
-            color.to_midi_range() for color in off_colors
-        ]
+        self._current_led_colors = [color.to_midi_range() for color in off_colors]
 
         logger.debug("Applied LED colors directly via command 0x06")
 
@@ -1151,7 +1145,7 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
             num: int,
             toggle: bool,
             off: tuple[int, int, int],
-            on: tuple[int, int, int]
+            on: tuple[int, int, int],
         ) -> LPD8MK2ProgramConfig:
             pads = [
                 LPD8MK2PadConfig(
@@ -1180,17 +1174,17 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
             )
 
         return [
-            make_program(1, False, (255, 0, 0), (0, 0, 255)),      # red/blue, MOMENTARY
-            make_program(2, False, (0, 255, 0), (0, 0, 255)),      # green/blue, MOMENTARY
+            make_program(1, False, (255, 0, 0), (0, 0, 255)),  # red/blue, MOMENTARY
+            make_program(2, False, (0, 255, 0), (0, 0, 255)),  # green/blue, MOMENTARY
             make_program(3, False, (0, 255, 255), (255, 0, 255)),  # cyan/magenta, MOMENTARY
-            make_program(4, True, (0, 0, 0), (255, 255, 255)),     # black/white, TOGGLE
+            make_program(4, True, (0, 0, 0), (255, 255, 255)),  # black/white, TOGGLE
         ]
 
     def _build_program_config_sysex(
         self,
         program_num: int,
         channel: int,
-        bank_config: Optional['BankConfig'] = None
+        bank_config: Optional["BankConfig"] = None,
     ) -> mido.Message:
         """
         Build SysEx message to configure a program using Pydantic models.
@@ -1214,24 +1208,28 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
         pads = []
         for pad_idx in range(self.PAD_COUNT):
             off_color, on_color = pad_colors[pad_idx]
-            pads.append(LPD8MK2PadConfig(
-                note=self.PAD_START_NOTE + pad_idx,
-                cc=self.PAD_CC_START + pad_idx,
-                pcn=pad_idx,
-                channel=channel,
-                off_color=off_color,
-                on_color=on_color,
-            ))
+            pads.append(
+                LPD8MK2PadConfig(
+                    note=self.PAD_START_NOTE + pad_idx,
+                    cc=self.PAD_CC_START + pad_idx,
+                    pcn=pad_idx,
+                    channel=channel,
+                    off_color=off_color,
+                    on_color=on_color,
+                ),
+            )
 
         # Build knob configs
         knobs = []
         for knob_idx in range(self.KNOB_COUNT):
-            knobs.append(LPD8MK2KnobConfig(
-                cc=self.KNOB_START_CC + knob_idx,
-                channel=channel,
-                min_value=0,
-                max_value=127,
-            ))
+            knobs.append(
+                LPD8MK2KnobConfig(
+                    cc=self.KNOB_START_CC + knob_idx,
+                    channel=channel,
+                    min_value=0,
+                    max_value=127,
+                ),
+            )
 
         # Create program config and serialize
         program = LPD8MK2ProgramConfig(

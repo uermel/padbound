@@ -7,9 +7,10 @@ and colors across banks in multi-bank MIDI controllers.
 
 import re
 from typing import Optional
-from pydantic import BaseModel, Field, field_validator, model_validator
 
-from .controls import ControlType, ControlDefinition, CapabilityError
+from pydantic import BaseModel, field_validator, model_validator
+
+from .controls import CapabilityError, ControlDefinition, ControlType
 from .logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -17,6 +18,7 @@ logger = get_logger(__name__)
 
 class ConfigurationError(Exception):
     """Raised when configuration is invalid or conflicts with hardware constraints."""
+
     pass
 
 
@@ -27,12 +29,13 @@ class ControlConfig(BaseModel):
     Specifies control type and optional colors for visual feedback.
     Supports separate colors for ON and OFF states.
     """
+
     type: ControlType
     color: Optional[str] = None  # ON state color: Named color, hex (#FF0000), or rgb(r,g,b)
     off_color: Optional[str] = None  # OFF state color (defaults to black if not specified)
     led_mode: Optional[str] = None  # LED animation: "solid", "pulse", "blink" (default: solid)
 
-    @field_validator('led_mode')
+    @field_validator("led_mode")
     @classmethod
     def validate_led_mode(cls, v):
         """Validate led_mode is one of the supported values."""
@@ -57,15 +60,16 @@ class BankConfig(BaseModel):
         toggle_mode: Bank-level toggle mode for controllers with global toggle settings.
             None = use plugin default, True = toggle mode, False = momentary mode.
     """
+
     controls: dict[str, ControlConfig]
     toggle_mode: Optional[bool] = None
 
-    @field_validator('controls')
+    @field_validator("controls")
     @classmethod
     def validate_control_keys(cls, v):
         """Validate control ID patterns."""
-        for key in v.keys():
-            if not (key.replace('_', '').replace('*', '').isalnum()):
+        for key in v:
+            if not (key.replace("_", "").replace("*", "").isalnum()):
                 raise ValueError(f"Invalid control ID pattern: {key}")
         return v
 
@@ -80,13 +84,14 @@ class ControllerConfig(BaseModel):
 
     Only one mode can be used at a time.
     """
+
     # Bank-aware mode
     banks: Optional[dict[str, BankConfig]] = None
 
     # Flat mode (backward compatible)
     controls: Optional[dict[str, ControlConfig]] = None
 
-    @model_validator(mode='after')
+    @model_validator(mode="after")
     def validate_exclusive_modes(self):
         """Ensure only one mode is used."""
         if self.banks is not None and self.controls is not None:
@@ -142,10 +147,10 @@ class ControlConfigResolver:
         wildcard_patterns = []
 
         for pattern, control_config in controls.items():
-            if '*' in pattern:
+            if "*" in pattern:
                 # Convert glob pattern to regex
-                regex_pattern = pattern.replace('*', '.*')
-                compiled = re.compile(f'^{regex_pattern}$')
+                regex_pattern = pattern.replace("*", ".*")
+                compiled = re.compile(f"^{regex_pattern}$")
                 wildcard_patterns.append((compiled, control_config))
             else:
                 exact_matches[pattern] = control_config
@@ -155,7 +160,7 @@ class ControlConfigResolver:
     def resolve_config(
         self,
         control_id: str,
-        definition: ControlDefinition
+        definition: ControlDefinition,
     ) -> tuple[ControlType, Optional[str], Optional[str], Optional[str]]:
         """
         Resolve control type and colors for a control.
@@ -240,18 +245,13 @@ class ControlConfigResolver:
         Returns:
             (control_base_id, bank_id or None)
         """
-        if '@' in control_id:
-            base_id, bank_id = control_id.split('@', 1)
+        if "@" in control_id:
+            base_id, bank_id = control_id.split("@", 1)
             return (base_id, bank_id)
         else:
             return (control_id, None)
 
-    def _validate_supported(
-        self,
-        control_id: str,
-        requested_type: ControlType,
-        definition: ControlDefinition
-    ) -> None:
+    def _validate_supported(self, control_id: str, requested_type: ControlType, definition: ControlDefinition) -> None:
         """
         Validate that requested type is supported by the control.
 
@@ -269,15 +269,13 @@ class ControlConfigResolver:
                 raise CapabilityError(
                     f"Control '{control_id}' only supports type "
                     f"{definition.control_type.value}, but {requested_type.value} "
-                    f"was requested. This control has fixed hardware behavior."
+                    f"was requested. This control has fixed hardware behavior.",
                 )
         else:
             # Check if requested type is in supported types
             if requested_type not in definition.type_modes.supported_types:
-                supported_str = ", ".join(
-                    t.value for t in definition.type_modes.supported_types
-                )
+                supported_str = ", ".join(t.value for t in definition.type_modes.supported_types)
                 raise CapabilityError(
                     f"Control '{control_id}' does not support type "
-                    f"{requested_type.value}. Supported types: {supported_str}"
+                    f"{requested_type.value}. Supported types: {supported_str}",
                 )

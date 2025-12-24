@@ -13,7 +13,7 @@ A general, stateful python interface for MIDI controllers that abstracts hardwar
 
 ## Overview
 
-Padbound provides a high-level abstraction over MIDI controllers, allowing applications to work with three fundamental 
+Padbound provides a high-level abstraction over MIDI controllers, allowing applications to work with three fundamental
 control types (toggles, momentary triggers, continuous controls) and RGB colors without dealing with raw MIDI messages.
 
 ## Features

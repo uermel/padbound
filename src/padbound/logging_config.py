@@ -12,7 +12,6 @@ from typing import Optional
 from rich.console import Console
 from rich.logging import RichHandler
 
-
 # Global flag to track if logging has been configured
 _logging_configured = False
 

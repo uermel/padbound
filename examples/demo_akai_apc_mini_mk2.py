@@ -15,11 +15,12 @@ The APC mini MK2 supports:
 
 import logging
 import time
+
+from padbound.config import ControlConfig, ControllerConfig
 from padbound.controller import Controller
+from padbound.controls import ControlState, ControlType
+from padbound.logging_config import get_logger, set_module_level, setup_logging
 from padbound.plugins.akai_apc_mini_mk2 import AkaiAPCminiMK2Plugin
-from padbound.config import ControllerConfig, ControlConfig
-from padbound.controls import ControlType, ControlState
-from padbound.logging_config import setup_logging, set_module_level, get_logger
 
 # Set up rich logging to see what's happening
 setup_logging(level=logging.INFO)
@@ -27,8 +28,8 @@ setup_logging(level=logging.INFO)
 logger = get_logger(__name__)
 
 # Enable debug logging for specific modules to see MIDI input
-set_module_level('padbound.controller', logging.DEBUG)
-set_module_level('padbound.midi_io', logging.DEBUG)
+set_module_level("padbound.controller", logging.DEBUG)
+set_module_level("padbound.midi_io", logging.DEBUG)
 
 
 def create_example_config() -> ControllerConfig:
@@ -79,92 +80,132 @@ def create_example_config() -> ControllerConfig:
     controls = {}
 
     # Row 0 (bottom): Rainbow spectrum with dim off states
-    rainbow_on = ['red', 'orange', 'yellow', 'lime', 'green', 'cyan', 'blue', 'purple']
-    rainbow_off = ['rgb(64, 0, 0)', 'rgb(64, 32, 0)', 'rgb(64, 64, 0)', 'rgb(32, 64, 0)',
-                   'rgb(0, 64, 0)', 'rgb(0, 64, 64)', 'rgb(0, 0, 64)', 'rgb(32, 0, 64)']
+    rainbow_on = ["red", "orange", "yellow", "lime", "green", "cyan", "blue", "purple"]
+    rainbow_off = [
+        "rgb(64, 0, 0)",
+        "rgb(64, 32, 0)",
+        "rgb(64, 64, 0)",
+        "rgb(32, 64, 0)",
+        "rgb(0, 64, 0)",
+        "rgb(0, 64, 64)",
+        "rgb(0, 0, 64)",
+        "rgb(32, 0, 64)",
+    ]
     for col, (on_color, off_color) in enumerate(zip(rainbow_on, rainbow_off)):
-        controls[f"pad_0_{col}"] = ControlConfig(
-            type=ControlType.TOGGLE,
-            color=on_color,
-            off_color=off_color
-        )
+        controls[f"pad_0_{col}"] = ControlConfig(type=ControlType.TOGGLE, color=on_color, off_color=off_color)
 
     # Row 1: Warm colors with dim off
-    warm_on = ['red', '#FF4400', 'orange', '#FFAA00', 'yellow', 'orange', 'pink', 'red']
-    warm_off = ['rgb(64, 0, 0)', 'rgb(64, 16, 0)', 'rgb(64, 32, 0)', 'rgb(64, 48, 0)',
-                'rgb(64, 64, 0)', 'rgb(64, 32, 0)', 'rgb(64, 16, 32)', 'rgb(64, 0, 0)']
+    warm_on = ["red", "#FF4400", "orange", "#FFAA00", "yellow", "orange", "pink", "red"]
+    warm_off = [
+        "rgb(64, 0, 0)",
+        "rgb(64, 16, 0)",
+        "rgb(64, 32, 0)",
+        "rgb(64, 48, 0)",
+        "rgb(64, 64, 0)",
+        "rgb(64, 32, 0)",
+        "rgb(64, 16, 32)",
+        "rgb(64, 0, 0)",
+    ]
     for col, (on_color, off_color) in enumerate(zip(warm_on, warm_off)):
-        controls[f"pad_1_{col}"] = ControlConfig(
-            type=ControlType.TOGGLE,
-            color=on_color,
-            off_color=off_color
-        )
+        controls[f"pad_1_{col}"] = ControlConfig(type=ControlType.TOGGLE, color=on_color, off_color=off_color)
 
     # Row 2: Cool colors (bright on, black off)
-    cool = ['cyan', 'blue', '#4444FF', 'purple', 'magenta', 'blue', 'cyan', 'green']
+    cool = ["cyan", "blue", "#4444FF", "purple", "magenta", "blue", "cyan", "green"]
     for col, color in enumerate(cool):
         controls[f"pad_2_{col}"] = ControlConfig(
             type=ControlType.TOGGLE,
             color=color,
-            off_color='black'  # Completely off when not pressed
+            off_color="black",  # Completely off when not pressed
         )
 
     # Row 3: Earth/natural tones with dim off
-    earth_on = ['#CC6600', 'orange', '#CCCC00', 'lime', 'green', '#00CC00', '#CC6600', 'red']
-    earth_off = ['rgb(48, 24, 0)', 'rgb(64, 32, 0)', 'rgb(48, 48, 0)', 'rgb(32, 64, 0)',
-                 'rgb(0, 48, 0)', 'rgb(0, 48, 0)', 'rgb(48, 24, 0)', 'rgb(48, 0, 0)']
+    earth_on = ["#CC6600", "orange", "#CCCC00", "lime", "green", "#00CC00", "#CC6600", "red"]
+    earth_off = [
+        "rgb(48, 24, 0)",
+        "rgb(64, 32, 0)",
+        "rgb(48, 48, 0)",
+        "rgb(32, 64, 0)",
+        "rgb(0, 48, 0)",
+        "rgb(0, 48, 0)",
+        "rgb(48, 24, 0)",
+        "rgb(48, 0, 0)",
+    ]
     for col, (on_color, off_color) in enumerate(zip(earth_on, earth_off)):
-        controls[f"pad_3_{col}"] = ControlConfig(
-            type=ControlType.TOGGLE,
-            color=on_color,
-            off_color=off_color
-        )
+        controls[f"pad_3_{col}"] = ControlConfig(type=ControlType.TOGGLE, color=on_color, off_color=off_color)
 
     # Row 4: Bright colors - MOMENTARY mode (lights while pressed, off when released)
-    bright_on = ['pink', 'orange', 'yellow', 'lime', 'cyan', 'blue', 'purple', 'magenta']
-    bright_off = ['rgb(48, 0, 0)', 'rgb(48, 24, 0)', 'rgb(48, 48, 0)', 'rgb(0, 48, 0)',
-                  'rgb(0, 48, 48)', 'rgb(0, 0, 48)', 'rgb(24, 0, 48)', 'rgb(48, 0, 48)']
+    bright_on = ["pink", "orange", "yellow", "lime", "cyan", "blue", "purple", "magenta"]
+    bright_off = [
+        "rgb(48, 0, 0)",
+        "rgb(48, 24, 0)",
+        "rgb(48, 48, 0)",
+        "rgb(0, 48, 0)",
+        "rgb(0, 48, 48)",
+        "rgb(0, 0, 48)",
+        "rgb(24, 0, 48)",
+        "rgb(48, 0, 48)",
+    ]
     for col, (on_color, off_color) in enumerate(zip(bright_on, bright_off)):
         controls[f"pad_4_{col}"] = ControlConfig(
-            type=ControlType.MOMENTARY,  # Lights only while pressed
+            type=ControlType.MOMENTARY,
             color=on_color,
-            off_color=off_color
+            off_color=off_color,  # Lights only while pressed
         )
 
     # Row 5: Monochrome gradient (bright on, dark off)
-    mono_on = ['rgb(128, 128, 128)', 'rgb(160, 160, 160)', 'rgb(192, 192, 192)', 'rgb(224, 224, 224)',
-               'white', 'white', 'white', 'white']
-    mono_off = ['black', 'rgb(32, 32, 32)', 'rgb(48, 48, 48)', 'rgb(64, 64, 64)',
-                'rgb(80, 80, 80)', 'rgb(96, 96, 96)', 'rgb(112, 112, 112)', 'rgb(128, 128, 128)']
+    mono_on = [
+        "rgb(128, 128, 128)",
+        "rgb(160, 160, 160)",
+        "rgb(192, 192, 192)",
+        "rgb(224, 224, 224)",
+        "white",
+        "white",
+        "white",
+        "white",
+    ]
+    mono_off = [
+        "black",
+        "rgb(32, 32, 32)",
+        "rgb(48, 48, 48)",
+        "rgb(64, 64, 64)",
+        "rgb(80, 80, 80)",
+        "rgb(96, 96, 96)",
+        "rgb(112, 112, 112)",
+        "rgb(128, 128, 128)",
+    ]
     for col, (on_color, off_color) in enumerate(zip(mono_on, mono_off)):
-        controls[f"pad_5_{col}"] = ControlConfig(
-            type=ControlType.TOGGLE,
-            color=on_color,
-            off_color=off_color
-        )
+        controls[f"pad_5_{col}"] = ControlConfig(type=ControlType.TOGGLE, color=on_color, off_color=off_color)
 
     # Row 6: Primary colors with PULSE mode (pulsing animation when ON)
     # Note: Pulse mode uses 128-color palette, so colors are approximated
-    primary = ['red', 'red', 'green', 'green', 'blue', 'blue', 'yellow', 'yellow']
+    primary = ["red", "red", "green", "green", "blue", "blue", "yellow", "yellow"]
     for col, color in enumerate(primary):
         controls[f"pad_6_{col}"] = ControlConfig(
             type=ControlType.TOGGLE,
             color=color,
-            off_color='black',
-            led_mode='pulse'  # Pulsing animation when ON
+            off_color="black",
+            led_mode="pulse",  # Pulsing animation when ON
         )
 
     # Row 7 (top): Purple/magenta gradient with BLINK mode (blinking when ON)
     # Note: Blink mode uses 128-color palette, so colors are approximated
-    purple_on = ['blue', 'blue', 'purple', 'purple', 'magenta', 'magenta', 'pink', 'pink']
-    purple_off = ['rgb(24, 24, 64)', 'rgb(0, 0, 64)', 'rgb(32, 0, 64)', 'rgb(32, 0, 64)',
-                  'rgb(64, 0, 64)', 'rgb(64, 0, 64)', 'rgb(64, 16, 32)', 'rgb(64, 16, 32)']
+    purple_on = ["blue", "blue", "purple", "purple", "magenta", "magenta", "pink", "pink"]
+    purple_off = [
+        "rgb(24, 24, 64)",
+        "rgb(0, 0, 64)",
+        "rgb(32, 0, 64)",
+        "rgb(32, 0, 64)",
+        "rgb(64, 0, 64)",
+        "rgb(64, 0, 64)",
+        "rgb(64, 16, 32)",
+        "rgb(64, 16, 32)",
+    ]
     for col, (on_color, off_color) in enumerate(zip(purple_on, purple_off)):
         controls[f"pad_7_{col}"] = ControlConfig(
             type=ControlType.TOGGLE,
             color=on_color,
             off_color=off_color,
-            led_mode='blink'  # Blinking animation when ON
+            led_mode="blink",  # Blinking animation when ON
         )
 
     config = ControllerConfig(controls=controls)
@@ -177,7 +218,7 @@ def on_pad_change(control_id: str, state: ControlState):
     if not control_id.startswith("pad_"):
         return
     # Extract row and col from control_id (format: pad_row_col)
-    parts = control_id.split('_')
+    parts = control_id.split("_")
     row, col = parts[1], parts[2]
     status = "ON " if state.is_on else "off"
     print(f"[PAD] Row {row} Col {col} -> {status} color={state.color}")
@@ -185,24 +226,28 @@ def on_pad_change(control_id: str, state: ControlState):
 
 def on_fader_change(control_id: str, state: ControlState):
     """Callback for fader events."""
-    fader_num = control_id.split('_')[1]
-    bar = '█' * (state.value // 4)  # Visual bar (0-31 chars)
+    fader_num = control_id.split("_")[1]
+    bar = "█" * (state.value // 4)  # Visual bar (0-31 chars)
     print(f"[FADER {fader_num}] {state.value:3d}/127 [{bar:<31s}]")
 
 
 def make_fader_ctrl_callback(btn_name: str):
     """Create a callback for a fader control / navigation button."""
+
     def callback(state: ControlState):
         status = "PRESSED" if state.is_on else "released"
         print(f"[{btn_name.upper()}] {status}")
+
     return callback
 
 
 def make_scene_callback(btn_name: str):
     """Create a callback for a scene button."""
+
     def callback(state: ControlState):
         status = "PRESSED" if state.is_on else "released"
         print(f"[{btn_name.upper()}] {status}")
+
     return callback
 
 
@@ -219,9 +264,9 @@ def on_any_control(control_id: str, state: ControlState):
 
 def main():
     """Main demo function."""
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("AKAI APC mini MK2 Demo")
-    print("="*60)
+    print("=" * 60)
 
     # Create configuration
     print("\n1. Creating configuration...")
@@ -275,43 +320,43 @@ def main():
     print("\n4. Connecting to controller...")
     try:
         controller.connect()
-        print(f"   ✓ Connected successfully!")
+        print("   ✓ Connected successfully!")
     except IOError as e:
         print(f"   ✗ Failed to connect: {e}")
         print("\nMake sure your APC mini MK2 is connected via USB.")
         return
 
     # Print controller info
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("Controller Information:")
-    print("="*60)
+    print("=" * 60)
     print(f"Plugin: {controller.plugin.name}")
     print(f"Controls: {len(controller.get_controls())} total")
     print(f"  - {plugin.PAD_COUNT} RGB pads (8x8 grid)")
     print(f"  - {plugin.FADER_COUNT} faders (8 channel + 1 master)")
-    print(f"  - 8 fader control buttons (volume, pan, send, device) + navigation (up, down, left, right)")
-    print(f"  - 8 scene buttons (clip, solo, mute, rec, select, drum, note, stop_all)")
-    print(f"  - 1 shift button")
+    print("  - 8 fader control buttons (volume, pan, send, device) + navigation (up, down, left, right)")
+    print("  - 8 scene buttons (clip, solo, mute, rec, select, drum, note, stop_all)")
+    print("  - 1 shift button")
 
     # Show discovered fader positions
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("Discovered Fader Positions:")
-    print("="*60)
+    print("=" * 60)
     print("(Obtained via Introduction Message on startup)")
     for i in range(1, plugin.FADER_COUNT + 1):
         fader_id = f"fader_{i}"
         state = controller.get_state(fader_id)
         label = f"Fader {i}" if i < 9 else "Master "
         if state and state.value is not None:
-            bar = '█' * (state.value // 4)
+            bar = "█" * (state.value // 4)
             print(f"  {label}: {state.value:3d}/127 [{bar:<31s}]")
         else:
             print(f"  {label}: (not discovered)")
 
     # Print pad grid layout
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("Pad Grid Layout (8x8) - True RGB Colors:")
-    print("="*60)
+    print("=" * 60)
     print("Row 7 (top)    → Purple/magenta gradient (hex + named)")
     print("Row 6          → Primary colors (named)")
     print("Row 5          → Monochrome gradient (rgb())")
@@ -324,9 +369,9 @@ def main():
     print("              Col 0-7 (left to right)")
 
     # Main event loop
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("Listening for events... (Press Ctrl+C to exit)")
-    print("="*60)
+    print("=" * 60)
     print("\nTry:")
     print("  - Press pads to toggle them on/off")
     print("    * Watch the ON/OFF color transitions!")
@@ -348,7 +393,7 @@ def main():
     try:
         while True:
             # Process any pending MIDI events
-            num_events = controller.process_events()
+            controller.process_events()
 
             # Sleep briefly to avoid busy-waiting
             time.sleep(0.01)

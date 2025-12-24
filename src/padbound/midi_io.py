@@ -68,11 +68,7 @@ class MIDIInterface:
         """Get connected output port name."""
         return self._output_port_name
 
-    def connect(
-        self,
-        input_port_name: Optional[str] = None,
-        output_port_name: Optional[str] = None
-    ) -> None:
+    def connect(self, input_port_name: Optional[str] = None, output_port_name: Optional[str] = None) -> None:
         """
         Connect to MIDI ports and start input thread.
 
@@ -113,11 +109,7 @@ class MIDIInterface:
         # Start input thread if we have an input port
         if self._input_port:
             self._running.set()
-            self._input_thread = threading.Thread(
-                target=self._input_loop,
-                daemon=True,
-                name="MIDIInputThread"
-            )
+            self._input_thread = threading.Thread(target=self._input_loop, daemon=True, name="MIDIInputThread")
             self._input_thread.start()
             logger.debug("Started MIDI input thread")
 
@@ -182,17 +174,14 @@ class MIDIInterface:
                         except queue.Full:
                             self._dropped_messages += 1
                             if self._dropped_messages % 100 == 0:
-                                logger.warning(
-                                    f"Dropped {self._dropped_messages} MIDI messages "
-                                    "(queue full)"
-                                )
+                                logger.warning(f"Dropped {self._dropped_messages} MIDI messages (queue full)")
 
                 # Small sleep to prevent CPU spinning
                 # iter_pending() is non-blocking, so we need this
                 time.sleep(0.001)  # 1ms
 
             except Exception as e:
-                logger.error(f"Error in MIDI input loop: {e}", exc_info=True)
+                logger.exception(f"Error in MIDI input loop: {e}")
                 # Continue running unless stop requested
 
         logger.debug("MIDI input loop stopped")
@@ -216,7 +205,7 @@ class MIDIInterface:
             except queue.Empty:
                 break
             except Exception as e:
-                logger.error(f"Error processing MIDI message: {e}", exc_info=True)
+                logger.exception(f"Error processing MIDI message: {e}")
 
         return count
 
@@ -324,15 +313,9 @@ class MIDIInterface:
         """
         pattern_lower = pattern.lower()
 
-        input_ports = [
-            name for name in MIDIInterface.list_input_ports()
-            if pattern_lower in name.lower()
-        ]
+        input_ports = [name for name in MIDIInterface.list_input_ports() if pattern_lower in name.lower()]
 
-        output_ports = [
-            name for name in MIDIInterface.list_output_ports()
-            if pattern_lower in name.lower()
-        ]
+        output_ports = [name for name in MIDIInterface.list_output_ports() if pattern_lower in name.lower()]
 
         return (input_ports, output_ports)
 

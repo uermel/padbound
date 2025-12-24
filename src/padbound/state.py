@@ -11,10 +11,9 @@ from typing import Optional
 
 from .controls import (
     Control,
-    ControlType,
-    ControlState,
     ControllerCapabilities,
-    CapabilityError,
+    ControlState,
+    ControlType,
 )
 
 
@@ -216,10 +215,7 @@ class ControllerState:
             Dictionary mapping control_id to ControlState
         """
         with self._lock:
-            return {
-                control_id: control.state
-                for control_id, control in self._controls.items()
-            }
+            return {control_id: control.state for control_id, control in self._controls.items()}
 
     def get_discovered_controls(self) -> list[str]:
         """
@@ -229,11 +225,7 @@ class ControllerState:
             List of control IDs with known state
         """
         with self._lock:
-            return [
-                control_id
-                for control_id, control in self._controls.items()
-                if control.state.is_discovered
-            ]
+            return [control_id for control_id, control in self._controls.items() if control.state.is_discovered]
 
     def get_undiscovered_controls(self) -> list[str]:
         """
@@ -243,11 +235,7 @@ class ControllerState:
             List of control IDs with unknown state
         """
         with self._lock:
-            return [
-                control_id
-                for control_id, control in self._controls.items()
-                if not control.state.is_discovered
-            ]
+            return [control_id for control_id, control in self._controls.items() if not control.state.is_discovered]
 
     def get_controls_by_type(self, control_type: ControlType) -> list[str]:
         """

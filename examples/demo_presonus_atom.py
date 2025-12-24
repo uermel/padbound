@@ -17,11 +17,12 @@ The PreSonus Atom supports:
 
 import logging
 import time
+
+from padbound.config import ControlConfig, ControllerConfig
 from padbound.controller import Controller
+from padbound.controls import ControlState, ControlType
+from padbound.logging_config import get_logger, set_module_level, setup_logging
 from padbound.plugins.presonus_atom import PreSonusAtomPlugin
-from padbound.config import ControllerConfig, ControlConfig
-from padbound.controls import ControlType, ControlState
-from padbound.logging_config import setup_logging, set_module_level, get_logger
 
 # Set up rich logging to see what's happening
 setup_logging(level=logging.INFO)
@@ -29,8 +30,8 @@ setup_logging(level=logging.INFO)
 logger = get_logger(__name__)
 
 # Enable debug logging for specific modules to see MIDI input
-set_module_level('padbound.controller', logging.DEBUG)
-set_module_level('padbound.midi_io', logging.DEBUG)
+set_module_level("padbound.controller", logging.DEBUG)
+set_module_level("padbound.midi_io", logging.DEBUG)
 
 
 def create_example_config() -> ControllerConfig:
@@ -63,60 +64,56 @@ def create_example_config() -> ControllerConfig:
 
     # Row 1 (bottom): Warm colors with dim off states - SOLID mode (default, steady light)
     warm_colors = [
-        ('red', 'rgb(64, 0, 0)'),
-        ('orange', 'rgb(64, 32, 0)'),
-        ('yellow', 'rgb(64, 64, 0)'),
-        ('green', 'rgb(0, 64, 0)'),
+        ("red", "rgb(64, 0, 0)"),
+        ("orange", "rgb(64, 32, 0)"),
+        ("yellow", "rgb(64, 64, 0)"),
+        ("green", "rgb(0, 64, 0)"),
     ]
     for i, (on_color, off_color) in enumerate(warm_colors, start=1):
-        controls[f"pad_{i}"] = ControlConfig(
-            type=ControlType.TOGGLE,
-            color=on_color,
-            off_color=off_color
-        )
+        controls[f"pad_{i}"] = ControlConfig(type=ControlType.TOGGLE, color=on_color, off_color=off_color)
 
     # Row 2: Cool colors with dim off states - PULSE mode (breathing effect when ON)
     cool_colors = [
-        ('cyan', 'rgb(0, 64, 64)'),
-        ('blue', 'rgb(0, 0, 64)'),
-        ('purple', 'rgb(32, 0, 64)'),
-        ('magenta', 'rgb(64, 0, 64)'),
+        ("cyan", "rgb(0, 64, 64)"),
+        ("blue", "rgb(0, 0, 64)"),
+        ("purple", "rgb(32, 0, 64)"),
+        ("magenta", "rgb(64, 0, 64)"),
     ]
     for i, (on_color, off_color) in enumerate(cool_colors, start=5):
         controls[f"pad_{i}"] = ControlConfig(
             type=ControlType.TOGGLE,
             color=on_color,
             off_color=off_color,
-            led_mode="pulse"  # Breathing effect when ON
+            led_mode="pulse",  # Breathing effect when ON
         )
 
     # Row 3: Mixed colors with dim off states - BLINK mode (flashing effect when ON)
     mixed_colors = [
-        ('pink', 'rgb(64, 16, 32)'),
-        ('lime', 'rgb(32, 64, 0)'),
-        ('#00CCCC', 'rgb(0, 48, 48)'),  # Teal (hex format)
-        ('white', 'rgb(48, 48, 48)'),
+        ("pink", "rgb(64, 16, 32)"),
+        ("lime", "rgb(32, 64, 0)"),
+        ("#00CCCC", "rgb(0, 48, 48)"),  # Teal (hex format)
+        ("white", "rgb(48, 48, 48)"),
     ]
     for i, (on_color, off_color) in enumerate(mixed_colors, start=9):
         controls[f"pad_{i}"] = ControlConfig(
             type=ControlType.TOGGLE,
             color=on_color,
             off_color=off_color,
-            led_mode="blink"  # Flashing effect when ON
+            led_mode="blink",  # Flashing effect when ON
         )
 
     # Row 4 (top): MOMENTARY mode - lights up only while pressed
     momentary_colors = [
-        ('rgb(255, 64, 64)', 'black'),   # Bright red
-        ('rgb(64, 255, 64)', 'black'),   # Bright green
-        ('rgb(64, 64, 255)', 'black'),   # Bright blue
-        ('rgb(255, 255, 255)', 'black'), # White
+        ("rgb(255, 64, 64)", "black"),  # Bright red
+        ("rgb(64, 255, 64)", "black"),  # Bright green
+        ("rgb(64, 64, 255)", "black"),  # Bright blue
+        ("rgb(255, 255, 255)", "black"),  # White
     ]
     for i, (on_color, off_color) in enumerate(momentary_colors, start=13):
         controls[f"pad_{i}"] = ControlConfig(
-            type=ControlType.MOMENTARY,  # Only lights while pressed
+            type=ControlType.MOMENTARY,
             color=on_color,
-            off_color=off_color
+            off_color=off_color,  # Only lights while pressed
         )
 
     config = ControllerConfig(controls=controls)
@@ -129,7 +126,7 @@ encoder_states = {f"encoder_{i}": 64 for i in range(1, 5)}
 
 def on_pad_change(control_id: str, state: ControlState):
     """Callback for pad events (both TOGGLE and MOMENTARY)."""
-    pad_num = int(control_id.split('_')[1])
+    pad_num = int(control_id.split("_")[1])
     status = "ON " if state.is_on else "off"
     # Pads 13-16 (top row) are MOMENTARY, others are TOGGLE
     mode = "MOMENTARY" if pad_num >= 13 else "TOGGLE"
@@ -138,20 +135,20 @@ def on_pad_change(control_id: str, state: ControlState):
 
 def on_encoder_change(control_id: str, state: ControlState):
     """Callback for encoder events (relative mode with simulated state)."""
-    enc_num = control_id.split('_')[1]
+    enc_num = control_id.split("_")[1]
     # Update tracked state with delta, clamped to 0-127
     new_value = encoder_states[control_id] + state.value
     new_value = max(0, min(127, new_value))
     encoder_states[control_id] = new_value
 
     direction = "CW " if state.value > 0 else "CCW"
-    bar = '█' * (new_value // 4)  # Visual bar (0-31 chars)
+    bar = "█" * (new_value // 4)  # Visual bar (0-31 chars)
     print(f"[ENCODER {enc_num}] {direction} {new_value:3d}/127 [{bar:<31s}] (delta={state.value:+d})")
 
 
 def on_transport_button(control_id: str, state: ControlState):
     """Callback for transport button events."""
-    btn_name = control_id.replace('_', ' ').upper()
+    btn_name = control_id.replace("_", " ").upper()
     status = "PRESSED" if state.is_on else "released"
     print(f"[{btn_name}] {status}")
 
@@ -159,14 +156,14 @@ def on_transport_button(control_id: str, state: ControlState):
 def on_nav_button(control_id: str, state: ControlState):
     """Callback for navigation button events."""
     # Extract button name: "nav_up" -> "UP"
-    btn_name = control_id.replace('nav_', '').upper()
+    btn_name = control_id.replace("nav_", "").upper()
     status = "PRESSED" if state.is_on else "released"
     print(f"[NAV {btn_name}] {status}")
 
 
 def on_mode_button(control_id: str, state: ControlState):
     """Callback for mode/function button events."""
-    btn_name = control_id.replace('_', ' ').title()
+    btn_name = control_id.replace("_", " ").title()
     status = "PRESSED" if state.is_on else "released"
     print(f"[{btn_name}] {status}")
 
@@ -178,9 +175,9 @@ def on_any_control(control_id: str, state: ControlState):
 
 def main():
     """Main demo function."""
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("PreSonus Atom Demo")
-    print("="*60)
+    print("=" * 60)
 
     # Create configuration
     print("\n1. Creating configuration...")
@@ -226,16 +223,16 @@ def main():
     print("   (This will switch the Atom to Native Control mode for LED control)")
     try:
         controller.connect()
-        print(f"   Connected successfully!")
+        print("   Connected successfully!")
     except IOError as e:
         print(f"   Failed to connect: {e}")
         print("\nMake sure your PreSonus Atom is connected via USB.")
         return
 
     # Print controller info
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("Controller Information:")
-    print("="*60)
+    print("=" * 60)
     print(f"Plugin: {controller.plugin.name}")
     print(f"Controls: {len(controller.get_controls())} total")
     print(f"  - {plugin.PAD_COUNT} RGB pads (4x4 grid)")
@@ -243,18 +240,18 @@ def main():
     print(f"  - {len(plugin.BUTTON_CCS)} buttons (various functions)")
 
     # Print pad grid with colors and LED modes
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("Pad Grid Layout (4x4) - True RGB Colors + LED Modes:")
-    print("="*60)
+    print("=" * 60)
     print("Row 4 (top):    MOMENTARY - bright while pressed, black when released")
     print("Row 3:          TOGGLE + BLINK - flashing when ON, dim when OFF")
     print("Row 2:          TOGGLE + PULSE - breathing when ON, dim when OFF")
     print("Row 1 (bottom): TOGGLE + SOLID - steady light when ON, dim when OFF")
 
     # Main event loop
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("Listening for events... (Press Ctrl+C to exit)")
-    print("="*60)
+    print("=" * 60)
     print("\nTry:")
     print("  - Press pads (rows 1-3) to toggle them on/off")
     print("    * Row 1: SOLID - steady light when ON")
@@ -284,7 +281,7 @@ def main():
     try:
         while True:
             # Process any pending MIDI events
-            num_events = controller.process_events()
+            controller.process_events()
 
             # Sleep briefly to avoid busy-waiting
             time.sleep(0.01)

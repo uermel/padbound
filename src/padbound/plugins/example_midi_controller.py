@@ -102,20 +102,20 @@ from typing import Callable, Optional
 
 import mido
 
+from ..controls import (
+    BankDefinition,
+    ControlCapabilities,
+    ControlDefinition,
+    ControllerCapabilities,
+    ControlType,
+    ControlTypeModes,
+)
+from ..logging_config import get_logger
 from ..plugin import (
     ControllerPlugin,
     MIDIMapping,
     MIDIMessageType,
 )
-from ..controls import (
-    ControlDefinition,
-    ControlType,
-    ControlTypeModes,
-    ControlCapabilities,
-    ControllerCapabilities,
-    BankDefinition,
-)
-from ..logging_config import get_logger
 
 logger = get_logger(__name__)
 
@@ -149,19 +149,19 @@ class ExampleMIDIController(ControllerPlugin):
     # Bank 1 MIDI Assignments
     # =============================================================================
 
-    BANK1_PAD_START_NOTE = 36    # Notes 36-51 (16 pads)
-    BANK1_KNOB_START_CC = 16     # CC 16-19 (4 knobs)
-    BANK1_BUTTON_SHIFT = 64      # Note 64 (shift button)
-    BANK1_BUTTON_SELECT = 65     # Note 65 (select button)
+    BANK1_PAD_START_NOTE = 36  # Notes 36-51 (16 pads)
+    BANK1_KNOB_START_CC = 16  # CC 16-19 (4 knobs)
+    BANK1_BUTTON_SHIFT = 64  # Note 64 (shift button)
+    BANK1_BUTTON_SELECT = 65  # Note 65 (select button)
 
     # =============================================================================
     # Bank 2 MIDI Assignments
     # =============================================================================
 
-    BANK2_PAD_START_NOTE = 52    # Notes 52-67 (16 pads)
-    BANK2_KNOB_START_CC = 20     # CC 20-23 (4 knobs)
-    BANK2_BUTTON_SHIFT = 66      # Note 66 (shift button)
-    BANK2_BUTTON_SELECT = 67     # Note 67 (select button)
+    BANK2_PAD_START_NOTE = 52  # Notes 52-67 (16 pads)
+    BANK2_KNOB_START_CC = 20  # CC 20-23 (4 knobs)
+    BANK2_BUTTON_SHIFT = 66  # Note 66 (shift button)
+    BANK2_BUTTON_SELECT = 67  # Note 67 (select button)
 
     # =============================================================================
     # Color Palette (Velocity Values)
@@ -198,7 +198,7 @@ class ExampleMIDIController(ControllerPlugin):
         """Return controller-level capabilities."""
         return ControllerCapabilities(
             supports_bank_feedback=False,  # Bank detection via note/CC range
-            indexing_scheme="1d",           # Linear numbering (pad_1...pad_16)
+            indexing_scheme="1d",  # Linear numbering (pad_1...pad_16)
             supports_persistent_configuration=False,  # No SysEx programming
         )
 
@@ -212,13 +212,13 @@ class ExampleMIDIController(ControllerPlugin):
         return [
             BankDefinition(
                 bank_id="bank_1",
-                control_type=ControlType.TOGGLE,  # Primary control type
-                display_name="Bank 1"
+                control_type=ControlType.TOGGLE,
+                display_name="Bank 1",  # Primary control type
             ),
             BankDefinition(
                 bank_id="bank_2",
-                control_type=ControlType.TOGGLE,  # Primary control type
-                display_name="Bank 2"
+                control_type=ControlType.TOGGLE,
+                display_name="Bank 2",  # Primary control type
             ),
         ]
 
@@ -256,7 +256,7 @@ class ExampleMIDIController(ControllerPlugin):
                         ),
                         bank_id=bank_id,
                         display_name=f"B{bank_num} Pad {pad_num}",
-                    )
+                    ),
                 )
 
             # 4 knobs per bank (continuous, read-only)
@@ -274,7 +274,7 @@ class ExampleMIDIController(ControllerPlugin):
                         min_value=0,
                         max_value=127,
                         display_name=f"B{bank_num} Knob {knob_num}",
-                    )
+                    ),
                 )
 
             # 2 buttons per bank (momentary with LED)
@@ -293,7 +293,7 @@ class ExampleMIDIController(ControllerPlugin):
                         ),
                         bank_id=bank_id,
                         display_name=f"B{bank_num} {button_name.title()}",
-                    )
+                    ),
                 )
 
         return definitions
@@ -314,20 +314,22 @@ class ExampleMIDIController(ControllerPlugin):
         for i in range(self.PAD_COUNT):
             note = self.BANK1_PAD_START_NOTE + i
             control_id = f"pad_{i+1}@bank_1"
-            mappings.extend([
-                MIDIMapping(
-                    message_type=MIDIMessageType.NOTE_ON,
-                    channel=self.MIDI_CHANNEL,
-                    note=note,
-                    control_id=control_id,
-                ),
-                MIDIMapping(
-                    message_type=MIDIMessageType.NOTE_OFF,
-                    channel=self.MIDI_CHANNEL,
-                    note=note,
-                    control_id=control_id,
-                ),
-            ])
+            mappings.extend(
+                [
+                    MIDIMapping(
+                        message_type=MIDIMessageType.NOTE_ON,
+                        channel=self.MIDI_CHANNEL,
+                        note=note,
+                        control_id=control_id,
+                    ),
+                    MIDIMapping(
+                        message_type=MIDIMessageType.NOTE_OFF,
+                        channel=self.MIDI_CHANNEL,
+                        note=note,
+                        control_id=control_id,
+                    ),
+                ],
+            )
 
         # Knobs 1-4: CC 16-19
         for i in range(self.KNOB_COUNT):
@@ -339,36 +341,38 @@ class ExampleMIDIController(ControllerPlugin):
                     channel=self.MIDI_CHANNEL,
                     control=cc,
                     control_id=control_id,
-                )
+                ),
             )
 
         # Buttons: Notes 64-65
-        mappings.extend([
-            MIDIMapping(
-                message_type=MIDIMessageType.NOTE_ON,
-                channel=self.MIDI_CHANNEL,
-                note=self.BANK1_BUTTON_SHIFT,
-                control_id="shift@bank_1",
-            ),
-            MIDIMapping(
-                message_type=MIDIMessageType.NOTE_OFF,
-                channel=self.MIDI_CHANNEL,
-                note=self.BANK1_BUTTON_SHIFT,
-                control_id="shift@bank_1",
-            ),
-            MIDIMapping(
-                message_type=MIDIMessageType.NOTE_ON,
-                channel=self.MIDI_CHANNEL,
-                note=self.BANK1_BUTTON_SELECT,
-                control_id="select@bank_1",
-            ),
-            MIDIMapping(
-                message_type=MIDIMessageType.NOTE_OFF,
-                channel=self.MIDI_CHANNEL,
-                note=self.BANK1_BUTTON_SELECT,
-                control_id="select@bank_1",
-            ),
-        ])
+        mappings.extend(
+            [
+                MIDIMapping(
+                    message_type=MIDIMessageType.NOTE_ON,
+                    channel=self.MIDI_CHANNEL,
+                    note=self.BANK1_BUTTON_SHIFT,
+                    control_id="shift@bank_1",
+                ),
+                MIDIMapping(
+                    message_type=MIDIMessageType.NOTE_OFF,
+                    channel=self.MIDI_CHANNEL,
+                    note=self.BANK1_BUTTON_SHIFT,
+                    control_id="shift@bank_1",
+                ),
+                MIDIMapping(
+                    message_type=MIDIMessageType.NOTE_ON,
+                    channel=self.MIDI_CHANNEL,
+                    note=self.BANK1_BUTTON_SELECT,
+                    control_id="select@bank_1",
+                ),
+                MIDIMapping(
+                    message_type=MIDIMessageType.NOTE_OFF,
+                    channel=self.MIDI_CHANNEL,
+                    note=self.BANK1_BUTTON_SELECT,
+                    control_id="select@bank_1",
+                ),
+            ],
+        )
 
         # =============================================================================
         # Bank 2 Mappings
@@ -378,20 +382,22 @@ class ExampleMIDIController(ControllerPlugin):
         for i in range(self.PAD_COUNT):
             note = self.BANK2_PAD_START_NOTE + i
             control_id = f"pad_{i+1}@bank_2"
-            mappings.extend([
-                MIDIMapping(
-                    message_type=MIDIMessageType.NOTE_ON,
-                    channel=self.MIDI_CHANNEL,
-                    note=note,
-                    control_id=control_id,
-                ),
-                MIDIMapping(
-                    message_type=MIDIMessageType.NOTE_OFF,
-                    channel=self.MIDI_CHANNEL,
-                    note=note,
-                    control_id=control_id,
-                ),
-            ])
+            mappings.extend(
+                [
+                    MIDIMapping(
+                        message_type=MIDIMessageType.NOTE_ON,
+                        channel=self.MIDI_CHANNEL,
+                        note=note,
+                        control_id=control_id,
+                    ),
+                    MIDIMapping(
+                        message_type=MIDIMessageType.NOTE_OFF,
+                        channel=self.MIDI_CHANNEL,
+                        note=note,
+                        control_id=control_id,
+                    ),
+                ],
+            )
 
         # Knobs 1-4: CC 20-23
         for i in range(self.KNOB_COUNT):
@@ -403,43 +409,45 @@ class ExampleMIDIController(ControllerPlugin):
                     channel=self.MIDI_CHANNEL,
                     control=cc,
                     control_id=control_id,
-                )
+                ),
             )
 
         # Buttons: Notes 66-67
-        mappings.extend([
-            MIDIMapping(
-                message_type=MIDIMessageType.NOTE_ON,
-                channel=self.MIDI_CHANNEL,
-                note=self.BANK2_BUTTON_SHIFT,
-                control_id="shift@bank_2",
-            ),
-            MIDIMapping(
-                message_type=MIDIMessageType.NOTE_OFF,
-                channel=self.MIDI_CHANNEL,
-                note=self.BANK2_BUTTON_SHIFT,
-                control_id="shift@bank_2",
-            ),
-            MIDIMapping(
-                message_type=MIDIMessageType.NOTE_ON,
-                channel=self.MIDI_CHANNEL,
-                note=self.BANK2_BUTTON_SELECT,
-                control_id="select@bank_2",
-            ),
-            MIDIMapping(
-                message_type=MIDIMessageType.NOTE_OFF,
-                channel=self.MIDI_CHANNEL,
-                note=self.BANK2_BUTTON_SELECT,
-                control_id="select@bank_2",
-            ),
-        ])
+        mappings.extend(
+            [
+                MIDIMapping(
+                    message_type=MIDIMessageType.NOTE_ON,
+                    channel=self.MIDI_CHANNEL,
+                    note=self.BANK2_BUTTON_SHIFT,
+                    control_id="shift@bank_2",
+                ),
+                MIDIMapping(
+                    message_type=MIDIMessageType.NOTE_OFF,
+                    channel=self.MIDI_CHANNEL,
+                    note=self.BANK2_BUTTON_SHIFT,
+                    control_id="shift@bank_2",
+                ),
+                MIDIMapping(
+                    message_type=MIDIMessageType.NOTE_ON,
+                    channel=self.MIDI_CHANNEL,
+                    note=self.BANK2_BUTTON_SELECT,
+                    control_id="select@bank_2",
+                ),
+                MIDIMapping(
+                    message_type=MIDIMessageType.NOTE_OFF,
+                    channel=self.MIDI_CHANNEL,
+                    note=self.BANK2_BUTTON_SELECT,
+                    control_id="select@bank_2",
+                ),
+            ],
+        )
 
         return mappings
 
     def init(
         self,
         send_message: Callable[[mido.Message], None],
-        receive_message: Callable[[float], Optional[mido.Message]] = None
+        receive_message: Callable[[float], Optional[mido.Message]] = None,
     ) -> dict[str, int]:
         """
         Initialize controller to known state.
@@ -462,19 +470,23 @@ class ExampleMIDIController(ControllerPlugin):
         # Clear all Bank 1 pads (velocity=0 = off)
         for i in range(self.PAD_COUNT):
             note = self.BANK1_PAD_START_NOTE + i
-            msg = mido.Message('note_on', channel=self.MIDI_CHANNEL, note=note, velocity=0)
+            msg = mido.Message("note_on", channel=self.MIDI_CHANNEL, note=note, velocity=0)
             send_message(msg)
 
         # Clear all Bank 2 pads
         for i in range(self.PAD_COUNT):
             note = self.BANK2_PAD_START_NOTE + i
-            msg = mido.Message('note_on', channel=self.MIDI_CHANNEL, note=note, velocity=0)
+            msg = mido.Message("note_on", channel=self.MIDI_CHANNEL, note=note, velocity=0)
             send_message(msg)
 
         # Clear all buttons (both banks)
-        for note in [self.BANK1_BUTTON_SHIFT, self.BANK1_BUTTON_SELECT,
-                     self.BANK2_BUTTON_SHIFT, self.BANK2_BUTTON_SELECT]:
-            msg = mido.Message('note_on', channel=self.MIDI_CHANNEL, note=note, velocity=0)
+        for note in [
+            self.BANK1_BUTTON_SHIFT,
+            self.BANK1_BUTTON_SELECT,
+            self.BANK2_BUTTON_SHIFT,
+            self.BANK2_BUTTON_SELECT,
+        ]:
+            msg = mido.Message("note_on", channel=self.MIDI_CHANNEL, note=note, velocity=0)
             send_message(msg)
 
         # Set initial active bank
@@ -516,16 +528,16 @@ class ExampleMIDIController(ControllerPlugin):
         # Detect bank from message
         new_bank = None
 
-        if msg.type in ('note_on', 'note_off'):
+        if msg.type in ("note_on", "note_off"):
             note = msg.note
             # Bank 1 notes: 36-51 (pads), 64-65 (buttons)
             if (36 <= note <= 51) or (64 <= note <= 65):
                 new_bank = "bank_1"
             # Bank 2 notes: 52-67 (pads), 66-67 (buttons)
-            elif (52 <= note <= 67):
+            elif 52 <= note <= 67:
                 new_bank = "bank_2"
 
-        elif msg.type == 'control_change':
+        elif msg.type == "control_change":
             cc = msg.control
             # Bank 1 CCs: 16-19
             if 16 <= cc <= 19:
@@ -579,8 +591,8 @@ class ExampleMIDIController(ControllerPlugin):
                 note = self.BANK2_PAD_START_NOTE + pad_num - 1
 
             # Determine color based on state
-            is_on = state_dict.get('is_on', False)
-            color = state_dict.get('color', 'off')
+            is_on = state_dict.get("is_on", False)
+            color = state_dict.get("color", "off")
 
             # Map color string to velocity value
             velocity = self.COLOR_PALETTE.get(color, 0)
@@ -589,12 +601,7 @@ class ExampleMIDIController(ControllerPlugin):
             if not is_on:
                 velocity = 0
 
-            msg = mido.Message(
-                'note_on',
-                channel=self.MIDI_CHANNEL,
-                note=note,
-                velocity=velocity
-            )
+            msg = mido.Message("note_on", channel=self.MIDI_CHANNEL, note=note, velocity=velocity)
             messages.append(msg)
 
         # Handle button feedback (simple on/off)
@@ -605,25 +612,14 @@ class ExampleMIDIController(ControllerPlugin):
 
             # Get MIDI note for this button
             if bank == "bank_1":
-                if button_name == "shift":
-                    note = self.BANK1_BUTTON_SHIFT
-                else:
-                    note = self.BANK1_BUTTON_SELECT
+                note = self.BANK1_BUTTON_SHIFT if button_name == "shift" else self.BANK1_BUTTON_SELECT
             else:
-                if button_name == "shift":
-                    note = self.BANK2_BUTTON_SHIFT
-                else:
-                    note = self.BANK2_BUTTON_SELECT
+                note = self.BANK2_BUTTON_SHIFT if button_name == "shift" else self.BANK2_BUTTON_SELECT
 
-            is_on = state_dict.get('is_on', False)
+            is_on = state_dict.get("is_on", False)
             velocity = 127 if is_on else 0
 
-            msg = mido.Message(
-                'note_on',
-                channel=self.MIDI_CHANNEL,
-                note=note,
-                velocity=velocity
-            )
+            msg = mido.Message("note_on", channel=self.MIDI_CHANNEL, note=note, velocity=velocity)
             messages.append(msg)
 
         # Knobs have no feedback capability (read-only controls)

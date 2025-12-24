@@ -127,25 +127,29 @@ References:
 """
 
 import time
-from typing import Callable, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 
 import mido
 from pydantic import BaseModel, Field
 
+if TYPE_CHECKING:
+    from ..config import BankConfig, ControllerConfig
+    from ..controls import ControlState
+
+from ..controls import (
+    BankDefinition,
+    ControlCapabilities,
+    ControlDefinition,
+    ControllerCapabilities,
+    ControlType,
+    ControlTypeModes,
+)
+from ..logging_config import get_logger
 from ..plugin import (
     ControllerPlugin,
     MIDIMapping,
     MIDIMessageType,
 )
-from ..controls import (
-    ControlDefinition,
-    ControlType,
-    ControlTypeModes,
-    ControlCapabilities,
-    ControllerCapabilities,
-    BankDefinition,
-)
-from ..logging_config import get_logger
 
 logger = get_logger(__name__)
 
@@ -153,6 +157,7 @@ logger = get_logger(__name__)
 # =============================================================================
 # SysEx Protocol Constants
 # =============================================================================
+
 
 class XjamSysEx:
     """SysEx protocol constants for Xjam."""
@@ -163,25 +168,25 @@ class XjamSysEx:
     HEADER = MANUFACTURER_ID + [DEVICE_ID]
 
     # Command bytes
-    CMD_WRITE = 0x10           # Write configuration to element
-    CMD_GLOBAL = 0x00          # Global commands (bank selection, commit)
-    CMD_CONFIG_MODE = 0x7B     # Enter/exit config mode
-    CMD_HANDSHAKE = 0x02       # Handshake for config mode
-    CMD_ACK = 0x7C             # Acknowledgment from device
+    CMD_WRITE = 0x10  # Write configuration to element
+    CMD_GLOBAL = 0x00  # Global commands (bank selection, commit)
+    CMD_CONFIG_MODE = 0x7B  # Enter/exit config mode
+    CMD_HANDSHAKE = 0x02  # Handshake for config mode
+    CMD_ACK = 0x7C  # Acknowledgment from device
 
     # Message types
-    TYPE_PAD = 0x07            # Pad configuration (7 data bytes)
-    TYPE_KNOB = 0x03           # Knob configuration (3 data bytes)
-    TYPE_BOOL = 0x01           # Boolean flag (1 data byte)
+    TYPE_PAD = 0x07  # Pad configuration (7 data bytes)
+    TYPE_KNOB = 0x03  # Knob configuration (3 data bytes)
+    TYPE_BOOL = 0x01  # Boolean flag (1 data byte)
 
     # Global command sub-IDs
-    GLOBAL_PAD_BANK = 0x09     # Set active pad bank
-    GLOBAL_CTRL_BANK = 0x0A    # Set active ctrl/knob bank
-    GLOBAL_COMMIT = 0x70       # Apply configuration changes
+    GLOBAL_PAD_BANK = 0x09  # Set active pad bank
+    GLOBAL_CTRL_BANK = 0x0A  # Set active ctrl/knob bank
+    GLOBAL_COMMIT = 0x70  # Apply configuration changes
 
     # Element IDs
     ELEMENT_AFTERTOUCH = 0x43  # Aftertouch mode setting
-    ELEMENT_TOGGLE = 0x44      # Toggle mode setting (global)
+    ELEMENT_TOGGLE = 0x44  # Toggle mode setting (global)
 
     # Pad modes
     PAD_MODE_NOTE = 0x00
@@ -196,8 +201,8 @@ class XjamSysEx:
     KNOB_MSG_AFTERTOUCH = 0x07
 
     # Encoder modes (encoded in bits 5-6 of mode_channel byte)
-    ENCODER_ABSOLUTE = 0x00        # Direct value mapping
-    ENCODER_REL_2S_COMP = 0x20     # Relative 2s complement
+    ENCODER_ABSOLUTE = 0x00  # Direct value mapping
+    ENCODER_REL_2S_COMP = 0x20  # Relative 2s complement
     ENCODER_REL_BIN_OFFSET = 0x40  # Relative binary offset
     ENCODER_REL_SIGNED_BIT = 0x60  # Relative signed bit
 
@@ -210,6 +215,7 @@ class XjamSysEx:
 # =============================================================================
 # Pydantic Models for SysEx Messages
 # =============================================================================
+
 
 class XjamPadConfig(BaseModel):
     """Configuration for a single Xjam pad.
@@ -234,9 +240,12 @@ class XjamPadConfig(BaseModel):
             self.mode,
             self.note,
             self.channel,
-            0x00, 0x00, 0x00, 0x00,  # Reserved padding
+            0x00,
+            0x00,
+            0x00,
+            0x00,  # Reserved padding
         ]
-        return mido.Message('sysex', data=data)
+        return mido.Message("sysex", data=data)
 
 
 class XjamKnobConfig(BaseModel):
@@ -269,7 +278,7 @@ class XjamKnobConfig(BaseModel):
             self.cc_num,
             mode_channel,
         ]
-        return mido.Message('sysex', data=data)
+        return mido.Message("sysex", data=data)
 
 
 class XjamGlobalConfig(BaseModel):
@@ -295,7 +304,7 @@ class XjamGlobalConfig(BaseModel):
             XjamSysEx.TYPE_BOOL,
             self.aftertouch_mode,
         ]
-        messages.append(mido.Message('sysex', data=data))
+        messages.append(mido.Message("sysex", data=data))
 
         # Toggle mode setting
         data = XjamSysEx.HEADER + [
@@ -304,7 +313,7 @@ class XjamGlobalConfig(BaseModel):
             XjamSysEx.TYPE_BOOL,
             0x01 if self.toggle_mode else 0x00,
         ]
-        messages.append(mido.Message('sysex', data=data))
+        messages.append(mido.Message("sysex", data=data))
 
         return messages
 
@@ -321,7 +330,7 @@ class XjamBankSelect(BaseModel):
             XjamSysEx.GLOBAL_PAD_BANK,
             self.bank,
         ]
-        return mido.Message('sysex', data=data)
+        return mido.Message("sysex", data=data)
 
     def to_ctrl_bank_message(self) -> mido.Message:
         """Build SysEx message to set active ctrl/knob bank."""
@@ -330,7 +339,7 @@ class XjamBankSelect(BaseModel):
             XjamSysEx.GLOBAL_CTRL_BANK,
             self.bank,
         ]
-        return mido.Message('sysex', data=data)
+        return mido.Message("sysex", data=data)
 
 
 class XjamConfigMode(BaseModel):
@@ -350,14 +359,14 @@ class XjamConfigMode(BaseModel):
             XjamSysEx.CMD_CONFIG_MODE,
             0x01 if self.enter else 0x00,
         ]
-        messages.append(mido.Message('sysex', data=data))
+        messages.append(mido.Message("sysex", data=data))
 
         # Handshake (same for enter and exit)
         data = XjamSysEx.MANUFACTURER_ID + [
             XjamSysEx.CMD_HANDSHAKE,
             0x01,
         ]
-        messages.append(mido.Message('sysex', data=data))
+        messages.append(mido.Message("sysex", data=data))
 
         return messages
 
@@ -373,14 +382,22 @@ class XjamGlobalCommit(BaseModel):
         data = XjamSysEx.HEADER + [
             XjamSysEx.CMD_GLOBAL,
             XjamSysEx.GLOBAL_COMMIT,
-            0x07, 0x01, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x07,
+            0x01,
+            0x40,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
         ]
-        return mido.Message('sysex', data=data)
+        return mido.Message("sysex", data=data)
 
 
 # =============================================================================
 # Plugin Implementation
 # =============================================================================
+
 
 class XjamPlugin(ControllerPlugin):
     """
@@ -419,8 +436,22 @@ class XjamPlugin(ControllerPlugin):
     # Default pad note assignments (factory default - non-sequential drum layout)
     # Pad numbers 1-16 map to these MIDI notes
     DEFAULT_PAD_NOTES = [
-        35, 37, 39, 40, 42, 44, 46, 48,  # Pads 1-8
-        36, 38, 41, 43, 45, 47, 49, 51,  # Pads 9-16
+        35,
+        37,
+        39,
+        40,
+        42,
+        44,
+        46,
+        48,  # Pads 1-8
+        36,
+        38,
+        41,
+        43,
+        45,
+        47,
+        49,
+        51,  # Pads 9-16
     ]
 
     # Default knob CC assignments (factory default)
@@ -452,7 +483,7 @@ class XjamPlugin(ControllerPlugin):
         """Return controller-level capabilities."""
         return ControllerCapabilities(
             supports_bank_feedback=False,  # No automatic bank feedback
-            indexing_scheme="1d",          # Linear pad/knob numbering
+            indexing_scheme="1d",  # Linear pad/knob numbering
             supports_persistent_configuration=True,  # SysEx programming supported
             requires_initialization_handshake=False,  # We configure channels for detection
         )
@@ -467,21 +498,9 @@ class XjamPlugin(ControllerPlugin):
         - Bank 3: Red
         """
         return [
-            BankDefinition(
-                bank_id="bank_1",
-                control_type=ControlType.TOGGLE,
-                display_name="Bank 1 (Green)"
-            ),
-            BankDefinition(
-                bank_id="bank_2",
-                control_type=ControlType.TOGGLE,
-                display_name="Bank 2 (Yellow)"
-            ),
-            BankDefinition(
-                bank_id="bank_3",
-                control_type=ControlType.TOGGLE,
-                display_name="Bank 3 (Red)"
-            ),
+            BankDefinition(bank_id="bank_1", control_type=ControlType.TOGGLE, display_name="Bank 1 (Green)"),
+            BankDefinition(bank_id="bank_2", control_type=ControlType.TOGGLE, display_name="Bank 2 (Yellow)"),
+            BankDefinition(bank_id="bank_3", control_type=ControlType.TOGGLE, display_name="Bank 3 (Red)"),
         ]
 
     def get_control_definitions(self) -> list[ControlDefinition]:
@@ -517,7 +536,7 @@ class XjamPlugin(ControllerPlugin):
                         bank_id=bank_id,
                         display_name=f"B{bank_num} Pad {pad_num}",
                         signal_types=["note", "cc", "pc"],  # Note, CC, PC modes
-                    )
+                    ),
                 )
 
             # 6 knobs per bank (continuous, read-only)
@@ -537,7 +556,7 @@ class XjamPlugin(ControllerPlugin):
                         max_value=127,
                         display_name=f"B{bank_num} Knob {knob_num}",
                         signal_types=["cc", "pitch", "pc", "aftertouch"],
-                    )
+                    ),
                 )
 
         return definitions
@@ -566,22 +585,24 @@ class XjamPlugin(ControllerPlugin):
                 midi_note = self.DEFAULT_PAD_NOTES[pad_num - 1]
 
                 # Note On/Off mappings
-                mappings.extend([
-                    MIDIMapping(
-                        message_type=MIDIMessageType.NOTE_ON,
-                        channel=channel,
-                        note=midi_note,
-                        control_id=control_id,
-                        signal_type="note",
-                    ),
-                    MIDIMapping(
-                        message_type=MIDIMessageType.NOTE_OFF,
-                        channel=channel,
-                        note=midi_note,
-                        control_id=control_id,
-                        signal_type="note",
-                    ),
-                ])
+                mappings.extend(
+                    [
+                        MIDIMapping(
+                            message_type=MIDIMessageType.NOTE_ON,
+                            channel=channel,
+                            note=midi_note,
+                            control_id=control_id,
+                            signal_type="note",
+                        ),
+                        MIDIMapping(
+                            message_type=MIDIMessageType.NOTE_OFF,
+                            channel=channel,
+                            note=midi_note,
+                            control_id=control_id,
+                            signal_type="note",
+                        ),
+                    ],
+                )
 
                 # CC mode mapping (if pads configured for CC)
                 # Use same note number as CC number for CC mode
@@ -592,7 +613,7 @@ class XjamPlugin(ControllerPlugin):
                         control=midi_note,  # CC number matches note in CC mode
                         control_id=control_id,
                         signal_type="cc",
-                    )
+                    ),
                 )
 
                 # PC mode mapping
@@ -602,7 +623,7 @@ class XjamPlugin(ControllerPlugin):
                         channel=channel,
                         control_id=control_id,
                         signal_type="pc",
-                    )
+                    ),
                 )
 
             # Knob mappings - CC mode (default)
@@ -618,7 +639,7 @@ class XjamPlugin(ControllerPlugin):
                         control=knob_cc,
                         control_id=control_id,
                         signal_type="cc",
-                    )
+                    ),
                 )
 
             # Pitch bend mapping for all knobs (when configured for pitch)
@@ -629,7 +650,7 @@ class XjamPlugin(ControllerPlugin):
                     channel=channel,
                     control_id=f"knob_1@{bank_id}",
                     signal_type="pitch",
-                )
+                ),
             )
 
             # Aftertouch mapping (when configured)
@@ -639,7 +660,7 @@ class XjamPlugin(ControllerPlugin):
                     channel=channel,
                     control_id=f"knob_1@{bank_id}",
                     signal_type="aftertouch",
-                )
+                ),
             )
 
         return mappings
@@ -647,7 +668,7 @@ class XjamPlugin(ControllerPlugin):
     def init(
         self,
         send_message: Callable[[mido.Message], None],
-        receive_message: Callable[[float], Optional[mido.Message]] = None
+        receive_message: Callable[[float], Optional[mido.Message]] = None,
     ) -> dict[str, int]:
         """
         Initialize Xjam to known state.
@@ -762,12 +783,7 @@ class XjamPlugin(ControllerPlugin):
 
         logger.info("Xjam shutdown complete")
 
-    def validate_bank_config(
-        self,
-        bank_id: str,
-        bank_config: 'BankConfig',
-        strict_mode: bool = True
-    ) -> None:
+    def validate_bank_config(self, bank_id: str, bank_config: "BankConfig", strict_mode: bool = True) -> None:
         """
         Validate toggle_mode consistency for Xjam.
 
@@ -805,11 +821,7 @@ class XjamPlugin(ControllerPlugin):
                 else:
                     logger.warning(msg)
 
-    def configure_programs(
-        self,
-        send_message: Callable[[mido.Message], None],
-        config: 'ControllerConfig'
-    ) -> None:
+    def configure_programs(self, send_message: Callable[[mido.Message], None], config: "ControllerConfig") -> None:
         """
         Program Xjam with persistent configuration.
 
@@ -820,7 +832,6 @@ class XjamPlugin(ControllerPlugin):
             send_message: Function to send MIDI messages
             config: Full controller configuration with resolved settings
         """
-        from ..config import ControllerConfig
 
         if not config or not config.banks:
             logger.debug("No configuration provided, using defaults")
@@ -859,10 +870,10 @@ class XjamPlugin(ControllerPlugin):
 
                 # Get pad-specific config if available
                 if bank_config and pad_id in bank_config.controls:
-                    control_cfg = bank_config.controls[pad_id]
+                    bank_config.controls[pad_id]
                     # Could extract note/mode overrides here if supported
                 else:
-                    control_cfg = None
+                    pass
 
                 pad_config = XjamPadConfig(
                     element_id=element_id,
@@ -937,9 +948,9 @@ class XjamPlugin(ControllerPlugin):
         control_id: str,
         value: int,
         signal_type: str,
-        current_state: 'ControlState',
-        control_definition: 'ControlDefinition',
-    ) -> Optional['ControlState']:
+        current_state: "ControlState",
+        control_definition: "ControlDefinition",
+    ) -> Optional["ControlState"]:
         """
         Custom state computation for Xjam.
 
@@ -962,8 +973,9 @@ class XjamPlugin(ControllerPlugin):
             ControlState for pads (hardware manages toggle state),
             None for other controls (use default behavior).
         """
-        from ..controls import ControlState, ControlType
         from datetime import datetime
+
+        from ..controls import ControlState, ControlType
 
         # Only handle pads with toggle type
         if not control_id.startswith("pad_"):
@@ -1006,19 +1018,23 @@ class XjamPlugin(ControllerPlugin):
         """
         # Ignore Xjam SysEx ACK messages (sent in response to configuration commands)
         # These have the format: F0 00 20 54 30 7C [optional data...] F7
-        if msg.type == 'sysex':
+        if msg.type == "sysex":
             data = msg.data
             # Check if this is an ACK message (manufacturer ID + device ID + ACK command)
             # data=(0,32,84,48,124) = (0x00,0x20,0x54,0x30,0x7C)
-            if (len(data) >= 5 and
-                data[0] == 0x00 and data[1] == 0x20 and data[2] == 0x54 and  # Manufacturer ID
-                data[3] == 0x30 and  # Device ID
-                data[4] == 0x7C):    # ACK command
+            if (
+                len(data) >= 5
+                and data[0] == 0x00
+                and data[1] == 0x20
+                and data[2] == 0x54
+                and data[3] == 0x30  # Manufacturer ID
+                and data[4] == 0x7C  # Device ID
+            ):  # ACK command
                 # Silently ignore ACK messages
                 return None
 
         # Detect bank from channel
-        if hasattr(msg, 'channel'):
+        if hasattr(msg, "channel"):
             channel = msg.channel
             for bank_id, ch in self.BANK_CHANNELS.items():
                 if ch == channel:
@@ -1029,7 +1045,7 @@ class XjamPlugin(ControllerPlugin):
                         # Sync both pad and ctrl banks to same value
                         # (Xjam has separate pad/ctrl banks - keep them synchronized)
                         if self._send_message:
-                            bank_num = int(bank_id.split('_')[1]) - 1  # "bank_1" -> 0
+                            bank_num = int(bank_id.split("_")[1]) - 1  # "bank_1" -> 0
                             bank_select = XjamBankSelect(bank=bank_num)
                             self._send_message(bank_select.to_pad_bank_message())
                             time.sleep(0.05)  # Xjam needs delay between SysEx commands
@@ -1055,7 +1071,7 @@ class XjamPlugin(ControllerPlugin):
         bank_id = self._last_active_bank
 
         # Handle note messages (pads in Note mode)
-        if msg.type in ('note_on', 'note_off'):
+        if msg.type in ("note_on", "note_off"):
             note = msg.note
             # Find pad by note number
             if note in self.DEFAULT_PAD_NOTES:
@@ -1065,7 +1081,7 @@ class XjamPlugin(ControllerPlugin):
                 return (control_id, value, "note")
 
         # Handle CC messages (knobs or pads in CC mode)
-        elif msg.type == 'control_change':
+        elif msg.type == "control_change":
             cc = msg.control
 
             # Check if it's a knob CC
@@ -1081,7 +1097,7 @@ class XjamPlugin(ControllerPlugin):
                 return (control_id, msg.value, "cc")
 
         # Handle program change (pads in PC mode)
-        elif msg.type == 'program_change':
+        elif msg.type == "program_change":
             # PC messages route to pad based on program number
             # This is a simplification - actual behavior depends on pad config
             program = msg.program
@@ -1090,7 +1106,7 @@ class XjamPlugin(ControllerPlugin):
                 return (control_id, 127, "pc")
 
         # Handle pitch bend (knobs in Pitch mode)
-        elif msg.type == 'pitchwheel':
+        elif msg.type == "pitchwheel":
             # Pitch bend is channel-wide, route to knob_1
             control_id = f"knob_1@{bank_id}"
             # Convert pitch (-8192 to 8191) to 0-127
@@ -1098,7 +1114,7 @@ class XjamPlugin(ControllerPlugin):
             return (control_id, value, "pitch")
 
         # Handle aftertouch (knobs in Aftertouch mode)
-        elif msg.type == 'aftertouch':
+        elif msg.type == "aftertouch":
             control_id = f"knob_1@{bank_id}"
             return (control_id, msg.value, "aftertouch")
 

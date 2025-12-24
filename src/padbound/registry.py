@@ -115,7 +115,7 @@ class PluginRegistry:
                     if pattern.lower() in available_port.lower():
                         logger.info(
                             f"Auto-detected controller: {plugin.name} "
-                            f"(matched pattern '{pattern}' in port '{available_port}')"
+                            f"(matched pattern '{pattern}' in port '{available_port}')",
                         )
                         return plugin
 
@@ -208,7 +208,7 @@ class PluginRegistry:
         # Check init method (must be implemented)
         try:
             # Check if init is not the default ABC method
-            if not hasattr(plugin.init, '__isabstractmethod__'):
+            if not hasattr(plugin.init, "__isabstractmethod__"):
                 # Try calling with dummy function
                 plugin.init(lambda msg: None)
             else:

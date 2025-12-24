@@ -6,26 +6,26 @@ components and provides a simple API for working with MIDI controllers.
 """
 
 import time
-from typing import Optional, Union, Any
+from typing import Optional, Union
 
 import mido
 
 from .callbacks import CallbackManager
-from .config import ControllerConfig, ControlConfigResolver
+from .config import ControlConfigResolver, ControllerConfig
 from .controls import (
+    CapabilityError,
+    ContinuousControl,
     Control,
-    ControlType,
-    ControlState,
     ControlDefinition,
     ControllerCapabilities,
-    CapabilityError,
-    ToggleControl,
+    ControlState,
+    ControlType,
     MomentaryControl,
-    ContinuousControl,
+    ToggleControl,
 )
+from .logging_config import get_logger
 from .midi_io import MIDIInterface
 from .plugin import ControllerPlugin
-from .logging_config import get_logger
 from .registry import plugin_registry
 from .state import ControllerState
 
@@ -50,7 +50,7 @@ class Controller:
         plugin: Optional[Union[str, ControllerPlugin]] = None,
         config: Optional[ControllerConfig] = None,
         strict_mode: bool = True,
-        auto_connect: bool = False
+        auto_connect: bool = False,
     ):
         """
         Initialize controller.
@@ -84,7 +84,7 @@ class Controller:
 
         # Resolve plugin
         if isinstance(plugin, str):
-            if plugin == 'auto':
+            if plugin == "auto":
                 self._plugin = plugin_registry.detect()
                 if not self._plugin:
                     raise ValueError("No controller auto-detected. Please specify plugin explicitly.")
@@ -98,9 +98,7 @@ class Controller:
         # Validate bank configurations against plugin constraints
         if self._plugin and config and config.banks:
             for bank_id, bank_config in config.banks.items():
-                self._plugin.validate_bank_config(
-                    bank_id, bank_config, self._strict_mode
-                )
+                self._plugin.validate_bank_config(bank_id, bank_config, self._strict_mode)
 
         # Auto-connect if requested
         if auto_connect and self._plugin:
@@ -121,11 +119,7 @@ class Controller:
         """Get active plugin."""
         return self._plugin
 
-    def connect(
-        self,
-        input_port: Optional[str] = None,
-        output_port: Optional[str] = None
-    ) -> None:
+    def connect(self, input_port: Optional[str] = None, output_port: Optional[str] = None) -> None:
         """
         Connect to MIDI controller and initialize.
 
@@ -202,7 +196,7 @@ class Controller:
             self._initialization_complete = False
             logger.info(
                 f"Plugin '{self._plugin.name}' requires initialization handshake - "
-                f"first interaction will be consumed for state detection"
+                f"first interaction will be consumed for state detection",
             )
             # Skip initial LED states - they'll be set via _apply_bank_leds() after bank detection
         else:
@@ -217,31 +211,26 @@ class Controller:
                     continue
 
                 # Only send feedback for controls with color support and configured colors
-                if control.definition.capabilities.supports_feedback:
-                    # Use off_color for initial state (controls start in OFF state)
-                    if control.definition.off_color is not None:
-                        state_dict = {
-                            'is_on': False,
-                            'value': 0,
-                            'color': control.definition.off_color,
-                            'normalized_value': None,
-                            'led_mode': None,  # Runtime mode (None when OFF)
-                            'definition_led_mode': control.definition.led_mode,  # Configured mode
-                        }
-                        messages = self._plugin.translate_feedback(control.definition.control_id, state_dict)
-                        for msg in messages:
-                            self._send_message(msg)
-                            # Add inter-message delay if device needs it (prevents buffer overflow)
-                            if feedback_delay > 0:
-                                time.sleep(feedback_delay)
+                if control.definition.capabilities.supports_feedback and control.definition.off_color is not None:
+                    state_dict = {
+                        "is_on": False,
+                        "value": 0,
+                        "color": control.definition.off_color,
+                        "normalized_value": None,
+                        "led_mode": None,  # Runtime mode (None when OFF)
+                        "definition_led_mode": control.definition.led_mode,  # Configured mode
+                    }
+                    messages = self._plugin.translate_feedback(control.definition.control_id, state_dict)
+                    for msg in messages:
+                        self._send_message(msg)
+                        # Add inter-message delay if device needs it (prevents buffer overflow)
+                        if feedback_delay > 0:
+                            time.sleep(feedback_delay)
 
         # Set connected flag
         self._connected = True
 
-        logger.info(
-            f"Connected to {self._plugin.name} "
-            f"(input: {input_port}, output: {output_port})"
-        )
+        logger.info(f"Connected to {self._plugin.name} (input: {input_port}, output: {output_port})")
 
     def disconnect(self) -> None:
         """Disconnect from controller and cleanup."""
@@ -261,7 +250,7 @@ class Controller:
         self._connected = False
         logger.info("Controller disconnected")
 
-    def reconfigure(self, config: Optional['ControllerConfig'] = None) -> None:
+    def reconfigure(self, config: Optional["ControllerConfig"] = None) -> None:
         """
         Reprogram device memory with new configuration (if supported).
 
@@ -291,14 +280,11 @@ class Controller:
             })
             controller.reconfigure(new_config)
         """
-        from .config import ControllerConfig
 
         self._ensure_connected()
 
         if not self._state.capabilities.supports_persistent_configuration:
-            raise NotImplementedError(
-                f"Plugin '{self._plugin.name}' does not support persistent configuration"
-            )
+            raise NotImplementedError(f"Plugin '{self._plugin.name}' does not support persistent configuration")
 
         # Use provided config or current config
         if config:
@@ -411,31 +397,25 @@ class Controller:
 
         # Check if feedback supported at all
         if not capabilities.supports_feedback:
-            self._handle_unsupported_operation(
-                f"Control '{control_id}' does not support feedback"
-            )
+            self._handle_unsupported_operation(f"Control '{control_id}' does not support feedback")
             return
 
         # Validate specific operations
-        if 'value' in kwargs and not capabilities.supports_value_setting:
-            self._handle_unsupported_operation(
-                f"Control '{control_id}' does not support value setting (not motorized)"
-            )
+        if "value" in kwargs and not capabilities.supports_value_setting:
+            self._handle_unsupported_operation(f"Control '{control_id}' does not support value setting (not motorized)")
             return
 
-        if 'color' in kwargs:
+        if "color" in kwargs:
             if not capabilities.supports_color:
-                self._handle_unsupported_operation(
-                    f"Control '{control_id}' does not support color"
-                )
+                self._handle_unsupported_operation(f"Control '{control_id}' does not support color")
                 return
 
             # Validate color against palette
-            if not self._state.validate_color(control_id, kwargs['color']):
-                color = kwargs['color']
+            if not self._state.validate_color(control_id, kwargs["color"]):
+                color = kwargs["color"]
                 palette = capabilities.color_palette
                 self._handle_unsupported_operation(
-                    f"Color '{color}' not in palette {palette} for control '{control_id}'"
+                    f"Color '{color}' not in palette {palette} for control '{control_id}'",
                 )
                 return
 
@@ -472,13 +452,13 @@ class Controller:
             if not capabilities.supports_feedback:
                 return False
 
-            if 'value' in kwargs and not capabilities.supports_value_setting:
+            if "value" in kwargs and not capabilities.supports_value_setting:
                 return False
 
-            if 'color' in kwargs:
+            if "color" in kwargs:
                 if not capabilities.supports_color:
                     return False
-                if not self._state.validate_color(control_id, kwargs['color']):
+                if not self._state.validate_color(control_id, kwargs["color"]):
                     return False
 
             return True
@@ -640,7 +620,7 @@ class Controller:
         # Resolve type, colors, and LED mode from config
         actual_type, on_color, off_color, led_mode = self._config_resolver.resolve_config(
             definition.control_id,
-            definition
+            definition,
         )
 
         # Validate led_mode against capabilities
@@ -651,24 +631,24 @@ class Controller:
                 if led_mode != "solid":
                     self._handle_unsupported_operation(
                         f"Control '{definition.control_id}' does not support LED mode "
-                        f"'{led_mode}'. Only 'solid' is supported."
+                        f"'{led_mode}'. Only 'solid' is supported.",
                     )
                     led_mode = None  # Fall back to default
             elif led_mode not in supported_modes:
                 self._handle_unsupported_operation(
                     f"Control '{definition.control_id}' does not support LED mode "
-                    f"'{led_mode}'. Supported modes: {supported_modes}"
+                    f"'{led_mode}'. Supported modes: {supported_modes}",
                 )
                 led_mode = None  # Fall back to default
 
         # Create control with resolved type, colors, and LED mode
         resolved_definition = definition.model_copy(
             update={
-                'control_type': actual_type,
-                'on_color': on_color,
-                'off_color': off_color,
-                'led_mode': led_mode,
-            }
+                "control_type": actual_type,
+                "on_color": on_color,
+                "off_color": off_color,
+                "led_mode": led_mode,
+            },
         )
 
         if actual_type == ControlType.TOGGLE:
@@ -715,20 +695,17 @@ class Controller:
 
             # Determine color based on current state
             state = control.state
-            if state.is_on:
-                color = control.definition.on_color
-            else:
-                color = control.definition.off_color
+            color = control.definition.on_color if state.is_on else control.definition.off_color
 
             if not color:
                 continue
 
             # Build state dict and send feedback
             state_dict = {
-                'is_on': state.is_on if state.is_on is not None else False,
-                'value': state.value if state.value is not None else 0,
-                'color': color,
-                'normalized_value': state.normalized_value
+                "is_on": state.is_on if state.is_on is not None else False,
+                "value": state.value if state.value is not None else 0,
+                "color": color,
+                "normalized_value": state.normalized_value,
             }
 
             messages = self._plugin.translate_feedback(control_def.control_id, state_dict)
@@ -811,22 +788,22 @@ class Controller:
             # Fire callbacks with control type and category
             control_type = control.definition.control_type
             category = control.definition.category
-            self._callbacks.on_control_change(
-                control_id, new_state, control_type, signal_type, category
-            )
+            self._callbacks.on_control_change(control_id, new_state, control_type, signal_type, category)
 
             # Auto-send feedback if control REQUIRES it (hardware doesn't manage LEDs)
             # Works for both color-based (pads) and on/off-based (buttons) controls
-            logger.debug(f"Auto-feedback check for {control_id}: requires_feedback={control.definition.capabilities.requires_feedback}")
+            logger.debug(
+                f"Auto-feedback check for {control_id}: requires_feedback={control.definition.capabilities.requires_feedback}",
+            )
             if control.definition.capabilities.requires_feedback:
                 # Convert ControlState to dict for translate_feedback
                 state_dict = {
-                    'is_on': new_state.is_on,
-                    'value': new_state.value,
-                    'color': new_state.color,
-                    'normalized_value': new_state.normalized_value,
-                    'led_mode': new_state.led_mode,
-                    'definition_led_mode': control.definition.led_mode,  # Configured mode
+                    "is_on": new_state.is_on,
+                    "value": new_state.value,
+                    "color": new_state.color,
+                    "normalized_value": new_state.normalized_value,
+                    "led_mode": new_state.led_mode,
+                    "definition_led_mode": control.definition.led_mode,  # Configured mode
                 }
                 messages = self._plugin.translate_feedback(control_id, state_dict)
                 feedback_delay = self._state.capabilities.feedback_message_delay

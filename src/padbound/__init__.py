@@ -10,42 +10,41 @@ underlying MIDI implementation.
 __version__ = "0.1.0"
 
 # Main API
+# Configuration models
+from .config import (
+    BankConfig,
+    ControlConfig,
+    ControllerConfig,
+)
 from .controller import Controller
 
 # Control types and models
 from .controls import (
-    ControlType,
-    ControlState,
-    ControlDefinition,
-    ControlCapabilities,
-    ControllerCapabilities,
-    ControlTypeModes,
     BankDefinition,
     CapabilityError,
-)
-
-# Configuration models
-from .config import (
-    ControlConfig,
-    BankConfig,
-    ControllerConfig,
+    ControlCapabilities,
+    ControlDefinition,
+    ControllerCapabilities,
+    ControlState,
+    ControlType,
+    ControlTypeModes,
 )
 
 # Logging configuration
 from .logging_config import (
-    setup_logging,
     get_logger,
     set_module_level,
+    setup_logging,
 )
 
 # Plugin development
 from .plugin import ControllerPlugin
-from .registry import plugin_registry
 
 # Plugins
 from .plugins.akai_lpd8_mk2 import AkaiLPD8MK2Plugin
 from .plugins.example_pad_controller import ExamplePadController
 from .plugins.generic_midi import GenericMIDIController
+from .registry import plugin_registry
 
 __all__ = [
     # Version

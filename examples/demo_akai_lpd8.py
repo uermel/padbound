@@ -11,11 +11,12 @@ This script demonstrates:
 
 import logging
 import time
+
+from padbound.config import BankConfig, ControlConfig, ControllerConfig
 from padbound.controller import Controller
+from padbound.controls import ControlState, ControlType
+from padbound.logging_config import get_logger, set_module_level, setup_logging
 from padbound.plugins.akai_lpd8_mk2 import AkaiLPD8MK2Plugin
-from padbound.config import ControllerConfig, BankConfig, ControlConfig
-from padbound.controls import ControlType, ControlState
-from padbound.logging_config import setup_logging, set_module_level, get_logger
 
 # Set up rich logging to see what's happening
 setup_logging(level=logging.INFO)
@@ -23,8 +24,8 @@ setup_logging(level=logging.INFO)
 logger = get_logger(__name__)
 
 # Enable debug logging for specific modules to see MIDI input
-set_module_level('padbound.controller', logging.DEBUG)
-set_module_level('padbound.midi_io', logging.DEBUG)
+set_module_level("padbound.controller", logging.DEBUG)
+set_module_level("padbound.midi_io", logging.DEBUG)
 
 
 def create_example_config() -> ControllerConfig:
@@ -57,9 +58,8 @@ def create_example_config() -> ControllerConfig:
                     "pad_6": ControlConfig(type=ControlType.TOGGLE, color="blue"),
                     "pad_7": ControlConfig(type=ControlType.TOGGLE, color="purple"),
                     "pad_8": ControlConfig(type=ControlType.TOGGLE, color="magenta"),
-                }
+                },
             ),
-
             # Bank 2 - Warm colors (TOGGLE mode)
             "bank_2": BankConfig(
                 toggle_mode=True,
@@ -72,9 +72,8 @@ def create_example_config() -> ControllerConfig:
                     "pad_6": ControlConfig(type=ControlType.TOGGLE, color="yellow"),
                     "pad_7": ControlConfig(type=ControlType.TOGGLE, color="pink"),
                     "pad_8": ControlConfig(type=ControlType.TOGGLE, color="pink"),
-                }
+                },
             ),
-
             # Bank 3 - Cool colors (MOMENTARY mode - pads only light while held)
             "bank_3": BankConfig(
                 toggle_mode=False,  # Momentary: ON while pressed, OFF when released
@@ -87,9 +86,8 @@ def create_example_config() -> ControllerConfig:
                     "pad_6": ControlConfig(type=ControlType.MOMENTARY, color="teal"),
                     "pad_7": ControlConfig(type=ControlType.MOMENTARY, color="green"),
                     "pad_8": ControlConfig(type=ControlType.MOMENTARY, color="green"),
-                }
+                },
             ),
-
             # Bank 4 - Monochrome intensity levels (TOGGLE mode)
             "bank_4": BankConfig(
                 toggle_mode=True,
@@ -102,9 +100,9 @@ def create_example_config() -> ControllerConfig:
                     "pad_6": ControlConfig(type=ControlType.TOGGLE, color="rgb(192, 192, 192)"),
                     "pad_7": ControlConfig(type=ControlType.TOGGLE, color="rgb(224, 224, 224)"),
                     "pad_8": ControlConfig(type=ControlType.TOGGLE, color="white"),
-                }
+                },
             ),
-        }
+        },
     )
 
     return config
@@ -120,7 +118,7 @@ def on_pad_change(control_id: str, state: ControlState):
 
 def on_knob_change(control_id: str, state: ControlState):
     """Callback for knob events."""
-    bar = '█' * (state.value // 4)  # Visual bar (0-31 chars)
+    bar = "█" * (state.value // 4)  # Visual bar (0-31 chars)
     print(f"[KNOB] {control_id:20s} {state.value:3d}/127 [{bar:<31s}]")
 
 
@@ -148,9 +146,9 @@ def on_cc_signal(control_id: str, state: ControlState):
 
 def main():
     """Main demo function."""
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("AKAI LPD8 MK2 Demo")
-    print("="*60)
+    print("=" * 60)
 
     # Create configuration
     print("\n1. Creating configuration...")
@@ -195,25 +193,29 @@ def main():
     print("\n4. Connecting to controller...")
     try:
         controller.connect()
-        print(f"   ✓ Connected successfully!")
+        print("   ✓ Connected successfully!")
     except IOError as e:
         print(f"   ✗ Failed to connect: {e}")
         print("\nMake sure your LPD8 is connected via USB.")
         return
 
     # Print controller info
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("Controller Information:")
-    print("="*60)
+    print("=" * 60)
     print(f"Plugin: {controller.plugin.name}")
     print(f"Controls: {len(controller.get_controls())} total")
-    print(f"  - {AkaiLPD8MK2Plugin.PAD_COUNT} pads × {AkaiLPD8MK2Plugin.BANK_COUNT} banks = {AkaiLPD8MK2Plugin.PAD_COUNT * AkaiLPD8MK2Plugin.BANK_COUNT} pads")
-    print(f"  - {AkaiLPD8MK2Plugin.KNOB_COUNT} knobs × {AkaiLPD8MK2Plugin.BANK_COUNT} banks = {AkaiLPD8MK2Plugin.KNOB_COUNT * AkaiLPD8MK2Plugin.BANK_COUNT} knobs")
+    print(
+        f"  - {AkaiLPD8MK2Plugin.PAD_COUNT} pads × {AkaiLPD8MK2Plugin.BANK_COUNT} banks = {AkaiLPD8MK2Plugin.PAD_COUNT * AkaiLPD8MK2Plugin.BANK_COUNT} pads",
+    )
+    print(
+        f"  - {AkaiLPD8MK2Plugin.KNOB_COUNT} knobs × {AkaiLPD8MK2Plugin.BANK_COUNT} banks = {AkaiLPD8MK2Plugin.KNOB_COUNT * AkaiLPD8MK2Plugin.BANK_COUNT} knobs",
+    )
 
     # Main event loop
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("Listening for events... (Press Ctrl+C to exit)")
-    print("="*60)
+    print("=" * 60)
     print("\nTry:")
     print("  - Press pads to toggle them on/off (they light up with configured colors)")
     print("  - Turn knobs to see continuous values (0-127)")
@@ -228,7 +230,7 @@ def main():
     try:
         while True:
             # Process any pending MIDI events
-            num_events = controller.process_events()
+            controller.process_events()
 
             # Sleep briefly to avoid busy-waiting
             time.sleep(0.01)

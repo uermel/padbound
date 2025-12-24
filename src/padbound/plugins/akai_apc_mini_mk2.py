@@ -230,19 +230,19 @@ from typing import Callable, Optional
 import mido
 from pydantic import BaseModel, Field
 
+from ..controls import (
+    ControlCapabilities,
+    ControlDefinition,
+    ControllerCapabilities,
+    ControlType,
+    ControlTypeModes,
+)
+from ..logging_config import get_logger
 from ..plugin import (
     ControllerPlugin,
     MIDIMapping,
     MIDIMessageType,
 )
-from ..controls import (
-    ControlDefinition,
-    ControlType,
-    ControlTypeModes,
-    ControlCapabilities,
-    ControllerCapabilities,
-)
-from ..logging_config import get_logger
 from ..utils import RGBColor
 
 logger = get_logger(__name__)
@@ -298,10 +298,10 @@ class APCminiMK2PadRGBUpdate(BaseModel):
             0x4F,  # APC mini MK2 product ID
             0x24,  # RGB LED command
             (data_len >> 7) & 0x7F,  # Length MSB
-            data_len & 0x7F,          # Length LSB
+            data_len & 0x7F,  # Length LSB
         ] + data_bytes
 
-        return mido.Message('sysex', data=sysex_data)
+        return mido.Message("sysex", data=sysex_data)
 
 
 class APCminiMK2IntroRequest(BaseModel):
@@ -325,13 +325,14 @@ class APCminiMK2IntroRequest(BaseModel):
             0x7F,  # All devices
             0x4F,  # APC mini MK2 product ID
             0x60,  # Introduction command
-            0x00, 0x04,  # Length: 4 bytes
+            0x00,
+            0x04,  # Length: 4 bytes
             self.app_id,
             self.version_major,
             self.version_minor,
             self.version_bugfix,
         ]
-        return mido.Message('sysex', data=sysex_data)
+        return mido.Message("sysex", data=sysex_data)
 
 
 class APCminiMK2IntroResponse(BaseModel):
@@ -356,8 +357,7 @@ class APCminiMK2IntroResponse(BaseModel):
         """
         data = list(data)
         # Validate header: manufacturer (47), device (7F), product (4F), response cmd (61)
-        if (len(data) >= 15 and
-            data[0] == 0x47 and data[2] == 0x4F and data[3] == 0x61):
+        if len(data) >= 15 and data[0] == 0x47 and data[2] == 0x4F and data[3] == 0x61:
             fader_positions = data[6:15]  # 9 fader values after header
             return cls(fader_positions=fader_positions)
         return None
@@ -389,59 +389,59 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
     # Fader control buttons (bottom row, red LEDs) - notes 0x64-0x6B
     # These control what the faders affect in Ableton Live
     FADER_CTRL_BUTTONS: dict[str, int] = {
-        "volume": 0x64,   # Fader control: Volume
-        "pan": 0x65,      # Fader control: Pan
-        "send": 0x66,     # Fader control: Send
-        "device": 0x67,   # Fader control: Device
-        "up": 0x68,       # Navigation: Up
-        "down": 0x69,     # Navigation: Down
-        "left": 0x6A,     # Navigation: Left
-        "right": 0x6B,    # Navigation: Right
+        "volume": 0x64,  # Fader control: Volume
+        "pan": 0x65,  # Fader control: Pan
+        "send": 0x66,  # Fader control: Send
+        "device": 0x67,  # Fader control: Device
+        "up": 0x68,  # Navigation: Up
+        "down": 0x69,  # Navigation: Down
+        "left": 0x6A,  # Navigation: Left
+        "right": 0x6B,  # Navigation: Right
     }
 
     # Scene buttons (right column, green LEDs) - notes 0x70-0x77
     SCENE_BUTTONS: dict[str, int] = {
-        "clip": 0x70,     # Clip view
-        "solo": 0x71,     # Solo
-        "mute": 0x72,     # Mute
-        "rec": 0x73,      # Record arm
-        "select": 0x74,   # Select
-        "drum": 0x75,     # Drum mode
-        "note": 0x76,     # Note mode
-        "stop_all": 0x77, # Stop all clips
+        "clip": 0x70,  # Clip view
+        "solo": 0x71,  # Solo
+        "mute": 0x72,  # Mute
+        "rec": 0x73,  # Record arm
+        "select": 0x74,  # Select
+        "drum": 0x75,  # Drum mode
+        "note": 0x76,  # Note mode
+        "stop_all": 0x77,  # Stop all clips
     }
 
     # Shift button (no LED)
-    SHIFT_BUTTON_NOTE = 0x7A   # Shift button (122)
+    SHIFT_BUTTON_NOTE = 0x7A  # Shift button (122)
 
     # Faders: CC numbers
     FADER_START_CC = 0x30  # Faders 1-9 (48-56)
 
     # SysEx configuration
     SYSEX_MANUFACTURER = 0x47  # Akai
-    SYSEX_DEVICE_ID = 0x7F     # All devices
-    SYSEX_PRODUCT_ID = 0x4F    # APC mini MK2
-    SYSEX_RGB_LED_CMD = 0x24   # RGB LED Color Lighting command
-    SYSEX_INTRO_CMD = 0x60     # Introduction message command
+    SYSEX_DEVICE_ID = 0x7F  # All devices
+    SYSEX_PRODUCT_ID = 0x4F  # APC mini MK2
+    SYSEX_RGB_LED_CMD = 0x24  # RGB LED Color Lighting command
+    SYSEX_INTRO_CMD = 0x60  # Introduction message command
     SYSEX_INTRO_RESPONSE = 0x61  # Introduction response command
 
     # RGB LED behavior - MIDI channel determines mode (for Note On method)
-    LED_BRIGHTNESS_10 = 0x90   # Channel 0
-    LED_BRIGHTNESS_25 = 0x91   # Channel 1
-    LED_BRIGHTNESS_50 = 0x92   # Channel 2
-    LED_BRIGHTNESS_65 = 0x93   # Channel 3
-    LED_BRIGHTNESS_75 = 0x94   # Channel 4
-    LED_BRIGHTNESS_90 = 0x95   # Channel 5
+    LED_BRIGHTNESS_10 = 0x90  # Channel 0
+    LED_BRIGHTNESS_25 = 0x91  # Channel 1
+    LED_BRIGHTNESS_50 = 0x92  # Channel 2
+    LED_BRIGHTNESS_65 = 0x93  # Channel 3
+    LED_BRIGHTNESS_75 = 0x94  # Channel 4
+    LED_BRIGHTNESS_90 = 0x95  # Channel 5
     LED_BRIGHTNESS_100 = 0x96  # Channel 6 (default)
-    LED_PULSE_1_16 = 0x97      # Channel 7
-    LED_PULSE_1_8 = 0x98       # Channel 8
-    LED_PULSE_1_4 = 0x99       # Channel 9
-    LED_PULSE_1_2 = 0x9A       # Channel 10
-    LED_BLINK_1_24 = 0x9B      # Channel 11
-    LED_BLINK_1_16 = 0x9C      # Channel 12
-    LED_BLINK_1_8 = 0x9D       # Channel 13
-    LED_BLINK_1_4 = 0x9E       # Channel 14
-    LED_BLINK_1_2 = 0x9F       # Channel 15
+    LED_PULSE_1_16 = 0x97  # Channel 7
+    LED_PULSE_1_8 = 0x98  # Channel 8
+    LED_PULSE_1_4 = 0x99  # Channel 9
+    LED_PULSE_1_2 = 0x9A  # Channel 10
+    LED_BLINK_1_24 = 0x9B  # Channel 11
+    LED_BLINK_1_16 = 0x9C  # Channel 12
+    LED_BLINK_1_8 = 0x9D  # Channel 13
+    LED_BLINK_1_4 = 0x9E  # Channel 14
+    LED_BLINK_1_2 = 0x9F  # Channel 15
 
     # Single LED control (track/scene buttons)
     SINGLE_LED_CHANNEL = 0x90  # Always channel 0
@@ -451,86 +451,86 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
 
     # LED mode channels for Note On method (pad LED control with palette colors)
     # These are MIDI channel numbers (0-indexed) for mido.Message
-    LED_CHANNEL_SOLID = 6       # 100% brightness, solid
-    LED_CHANNEL_PULSE = 9       # 1/4 note pulse (medium speed)
-    LED_CHANNEL_BLINK = 14      # 1/4 note blink (medium speed)
+    LED_CHANNEL_SOLID = 6  # 100% brightness, solid
+    LED_CHANNEL_PULSE = 9  # 1/4 note pulse (medium speed)
+    LED_CHANNEL_BLINK = 14  # 1/4 note blink (medium speed)
 
     # 128-color palette for Note On LED control
     # Maps velocity values to approximate RGB colors
     # Based on APC mini MK2 protocol documentation
     COLOR_PALETTE: dict[int, tuple[int, int, int]] = {
-        0: (0, 0, 0),           # Off/Black
-        1: (30, 30, 30),        # Dark gray
-        2: (127, 127, 127),     # Gray
-        3: (255, 255, 255),     # White
-        4: (255, 76, 76),       # Light red
-        5: (255, 0, 0),         # Red
-        6: (89, 0, 0),          # Dark red
-        7: (25, 0, 0),          # Dim red
-        8: (255, 189, 108),     # Peach
-        9: (255, 84, 0),        # Orange
-        10: (89, 29, 0),        # Dark orange
-        11: (39, 27, 0),        # Brown
-        12: (255, 255, 76),     # Light yellow
-        13: (255, 255, 0),      # Yellow
-        14: (89, 89, 0),        # Dark yellow
-        15: (25, 25, 0),        # Dim yellow
-        16: (136, 255, 76),     # Yellow-green
-        17: (84, 255, 0),       # Lime
-        18: (29, 89, 0),        # Dark lime
-        19: (20, 43, 0),        # Dim lime
-        20: (76, 255, 76),      # Light green
-        21: (0, 255, 0),        # Green
-        22: (0, 89, 0),         # Dark green
-        23: (0, 25, 0),         # Dim green
-        24: (76, 255, 94),      # Mint
-        25: (0, 255, 25),       # Spring green
-        26: (0, 89, 13),        # Dark spring
-        27: (0, 25, 2),         # Dim spring
-        28: (76, 255, 136),     # Light cyan-green
-        29: (0, 255, 84),       # Cyan-green
-        30: (0, 89, 29),        # Dark cyan-green
-        31: (0, 31, 18),        # Dim cyan-green
-        32: (76, 255, 183),     # Light aqua
-        33: (0, 255, 153),      # Aqua
-        34: (0, 89, 53),        # Dark aqua
-        35: (0, 25, 18),        # Dim aqua
-        36: (76, 195, 255),     # Light sky blue
-        37: (0, 255, 255),      # Cyan
-        38: (0, 89, 89),        # Dark cyan
-        39: (0, 25, 25),        # Dim cyan
-        40: (76, 136, 255),     # Light blue
-        41: (0, 170, 255),      # Sky blue
-        42: (0, 65, 82),        # Dark sky blue
-        43: (0, 16, 25),        # Dim sky blue
-        44: (76, 76, 255),      # Light indigo
-        45: (0, 0, 255),        # Blue
-        46: (0, 0, 89),         # Dark blue
-        47: (0, 0, 25),         # Dim blue
-        48: (135, 76, 255),     # Light purple
-        49: (84, 0, 255),       # Purple
-        50: (25, 0, 100),       # Dark purple
-        51: (15, 0, 48),        # Dim purple
-        52: (255, 76, 255),     # Light magenta
-        53: (255, 0, 255),      # Magenta
-        54: (89, 0, 89),        # Dark magenta
-        55: (25, 0, 25),        # Dim magenta
-        56: (255, 76, 135),     # Pink
-        57: (255, 0, 84),       # Hot pink
-        58: (89, 0, 29),        # Dark pink
-        59: (48, 0, 24),        # Dim pink
-        60: (255, 25, 0),       # Red-orange
-        61: (153, 53, 0),       # Rust
-        62: (121, 81, 0),       # Gold
-        63: (67, 100, 0),       # Olive
-        64: (3, 57, 0),         # Forest
-        65: (0, 87, 53),        # Teal
-        66: (0, 84, 127),       # Ocean
-        67: (0, 0, 255),        # Royal blue
-        68: (0, 68, 117),       # Navy
-        69: (39, 0, 136),       # Indigo
-        70: (72, 0, 120),       # Violet
-        71: (110, 0, 48),       # Maroon
+        0: (0, 0, 0),  # Off/Black
+        1: (30, 30, 30),  # Dark gray
+        2: (127, 127, 127),  # Gray
+        3: (255, 255, 255),  # White
+        4: (255, 76, 76),  # Light red
+        5: (255, 0, 0),  # Red
+        6: (89, 0, 0),  # Dark red
+        7: (25, 0, 0),  # Dim red
+        8: (255, 189, 108),  # Peach
+        9: (255, 84, 0),  # Orange
+        10: (89, 29, 0),  # Dark orange
+        11: (39, 27, 0),  # Brown
+        12: (255, 255, 76),  # Light yellow
+        13: (255, 255, 0),  # Yellow
+        14: (89, 89, 0),  # Dark yellow
+        15: (25, 25, 0),  # Dim yellow
+        16: (136, 255, 76),  # Yellow-green
+        17: (84, 255, 0),  # Lime
+        18: (29, 89, 0),  # Dark lime
+        19: (20, 43, 0),  # Dim lime
+        20: (76, 255, 76),  # Light green
+        21: (0, 255, 0),  # Green
+        22: (0, 89, 0),  # Dark green
+        23: (0, 25, 0),  # Dim green
+        24: (76, 255, 94),  # Mint
+        25: (0, 255, 25),  # Spring green
+        26: (0, 89, 13),  # Dark spring
+        27: (0, 25, 2),  # Dim spring
+        28: (76, 255, 136),  # Light cyan-green
+        29: (0, 255, 84),  # Cyan-green
+        30: (0, 89, 29),  # Dark cyan-green
+        31: (0, 31, 18),  # Dim cyan-green
+        32: (76, 255, 183),  # Light aqua
+        33: (0, 255, 153),  # Aqua
+        34: (0, 89, 53),  # Dark aqua
+        35: (0, 25, 18),  # Dim aqua
+        36: (76, 195, 255),  # Light sky blue
+        37: (0, 255, 255),  # Cyan
+        38: (0, 89, 89),  # Dark cyan
+        39: (0, 25, 25),  # Dim cyan
+        40: (76, 136, 255),  # Light blue
+        41: (0, 170, 255),  # Sky blue
+        42: (0, 65, 82),  # Dark sky blue
+        43: (0, 16, 25),  # Dim sky blue
+        44: (76, 76, 255),  # Light indigo
+        45: (0, 0, 255),  # Blue
+        46: (0, 0, 89),  # Dark blue
+        47: (0, 0, 25),  # Dim blue
+        48: (135, 76, 255),  # Light purple
+        49: (84, 0, 255),  # Purple
+        50: (25, 0, 100),  # Dark purple
+        51: (15, 0, 48),  # Dim purple
+        52: (255, 76, 255),  # Light magenta
+        53: (255, 0, 255),  # Magenta
+        54: (89, 0, 89),  # Dark magenta
+        55: (25, 0, 25),  # Dim magenta
+        56: (255, 76, 135),  # Pink
+        57: (255, 0, 84),  # Hot pink
+        58: (89, 0, 29),  # Dark pink
+        59: (48, 0, 24),  # Dim pink
+        60: (255, 25, 0),  # Red-orange
+        61: (153, 53, 0),  # Rust
+        62: (121, 81, 0),  # Gold
+        63: (67, 100, 0),  # Olive
+        64: (3, 57, 0),  # Forest
+        65: (0, 87, 53),  # Teal
+        66: (0, 84, 127),  # Ocean
+        67: (0, 0, 255),  # Royal blue
+        68: (0, 68, 117),  # Navy
+        69: (39, 0, 136),  # Indigo
+        70: (72, 0, 120),  # Violet
+        71: (110, 0, 48),  # Maroon
         # Extended colors (72-127) - variations and blends
         72: (255, 77, 0),
         73: (255, 148, 0),
@@ -615,12 +615,12 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
         Returns:
             Velocity value (0-127) for the nearest palette color
         """
-        min_distance = float('inf')
+        min_distance = float("inf")
         nearest_velocity = 0
-        qh, ql, qs = colorsys.rgb_to_hsv(r/255, g/255, b/255)
+        qh, ql, qs = colorsys.rgb_to_hsv(r / 255, g / 255, b / 255)
         for velocity, (pr, pg, pb) in self.COLOR_PALETTE.items():
             # Euclidean distance in RGB space
-            ph, pl, ps = colorsys.rgb_to_hsv(pr/255, pg/255, pb/255)
+            ph, pl, ps = colorsys.rgb_to_hsv(pr / 255, pg / 255, pb / 255)
             distance = (qh - ph) ** 2 + (ql - pl) ** 2 + (qs - ps) ** 2
             if distance < min_distance:
                 min_distance = distance
@@ -636,9 +636,9 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
         Returns:
             MIDI channel number (0-indexed) for Note On message
         """
-        if led_mode == 'pulse':
+        if led_mode == "pulse":
             return self.LED_CHANNEL_PULSE
-        elif led_mode == 'blink':
+        elif led_mode == "blink":
             return self.LED_CHANNEL_BLINK
         else:
             return self.LED_CHANNEL_SOLID
@@ -663,7 +663,7 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
         """Return controller-level capabilities."""
         return ControllerCapabilities(
             supports_bank_feedback=False,  # No automatic bank feedback
-            indexing_scheme="2d",          # 8x8 grid indexing
+            indexing_scheme="2d",  # 8x8 grid indexing
             grid_rows=self.PAD_ROWS,
             grid_cols=self.PAD_COLS,
             supports_persistent_configuration=False,  # No SysEx programming
@@ -689,7 +689,7 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
         # Col 0 = left, Col 7 = right
         for row in range(self.PAD_ROWS):
             for col in range(self.PAD_COLS):
-                pad_note = self.PAD_START_NOTE + (row * 8) + col
+                self.PAD_START_NOTE + (row * 8) + col
                 definitions.append(
                     ControlDefinition(
                         control_id=f"pad_{row}_{col}",
@@ -710,7 +710,7 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
                             requires_discovery=False,  # Pads report state immediately
                         ),
                         display_name=f"Pad {row},{col}",
-                    )
+                    ),
                 )
 
         # 9 faders (continuous, read-only)
@@ -727,11 +727,11 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
                     min_value=0,
                     max_value=127,
                     display_name=display_name,
-                )
+                ),
             )
 
         # Fader control / navigation buttons (bottom row, red LEDs)
-        for btn_name in self.FADER_CTRL_BUTTONS.keys():
+        for btn_name in self.FADER_CTRL_BUTTONS:
             definitions.append(
                 ControlDefinition(
                     control_id=btn_name,
@@ -745,11 +745,11 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
                         requires_discovery=False,
                     ),
                     display_name=btn_name.replace("_", " ").title(),
-                )
+                ),
             )
 
         # Scene buttons (right column, green LEDs)
-        for btn_name in self.SCENE_BUTTONS.keys():
+        for btn_name in self.SCENE_BUTTONS:
             definitions.append(
                 ControlDefinition(
                     control_id=btn_name,
@@ -763,7 +763,7 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
                         requires_discovery=False,
                     ),
                     display_name=btn_name.replace("_", " ").title(),
-                )
+                ),
             )
 
         # Shift button (momentary, no LED)
@@ -776,7 +776,7 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
                     requires_discovery=False,
                 ),
                 display_name="Shift",
-            )
+            ),
         )
 
         return definitions
@@ -795,22 +795,24 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
                 control_id = f"pad_{row}_{col}"
                 midi_note = self.PAD_START_NOTE + (row * 8) + col
 
-                mappings.extend([
-                    MIDIMapping(
-                        message_type=MIDIMessageType.NOTE_ON,
-                        channel=0,
-                        note=midi_note,
-                        control_id=control_id,
-                        signal_type="note",
-                    ),
-                    MIDIMapping(
-                        message_type=MIDIMessageType.NOTE_OFF,
-                        channel=0,
-                        note=midi_note,
-                        control_id=control_id,
-                        signal_type="note",
-                    ),
-                ])
+                mappings.extend(
+                    [
+                        MIDIMapping(
+                            message_type=MIDIMessageType.NOTE_ON,
+                            channel=0,
+                            note=midi_note,
+                            control_id=control_id,
+                            signal_type="note",
+                        ),
+                        MIDIMapping(
+                            message_type=MIDIMessageType.NOTE_OFF,
+                            channel=0,
+                            note=midi_note,
+                            control_id=control_id,
+                            signal_type="note",
+                        ),
+                    ],
+                )
 
         # Fader mappings - CC messages
         for fader_num in range(1, self.FADER_COUNT + 1):
@@ -824,71 +826,77 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
                     control=fader_cc,
                     control_id=control_id,
                     signal_type="default",
-                )
+                ),
             )
 
         # Fader control / navigation button mappings - note on/off
         for btn_name, midi_note in self.FADER_CTRL_BUTTONS.items():
-            mappings.extend([
-                MIDIMapping(
-                    message_type=MIDIMessageType.NOTE_ON,
-                    channel=0,
-                    note=midi_note,
-                    control_id=btn_name,
-                    signal_type="note",
-                ),
-                MIDIMapping(
-                    message_type=MIDIMessageType.NOTE_OFF,
-                    channel=0,
-                    note=midi_note,
-                    control_id=btn_name,
-                    signal_type="note",
-                ),
-            ])
+            mappings.extend(
+                [
+                    MIDIMapping(
+                        message_type=MIDIMessageType.NOTE_ON,
+                        channel=0,
+                        note=midi_note,
+                        control_id=btn_name,
+                        signal_type="note",
+                    ),
+                    MIDIMapping(
+                        message_type=MIDIMessageType.NOTE_OFF,
+                        channel=0,
+                        note=midi_note,
+                        control_id=btn_name,
+                        signal_type="note",
+                    ),
+                ],
+            )
 
         # Scene button mappings - note on/off
         for btn_name, midi_note in self.SCENE_BUTTONS.items():
-            mappings.extend([
+            mappings.extend(
+                [
+                    MIDIMapping(
+                        message_type=MIDIMessageType.NOTE_ON,
+                        channel=0,
+                        note=midi_note,
+                        control_id=btn_name,
+                        signal_type="note",
+                    ),
+                    MIDIMapping(
+                        message_type=MIDIMessageType.NOTE_OFF,
+                        channel=0,
+                        note=midi_note,
+                        control_id=btn_name,
+                        signal_type="note",
+                    ),
+                ],
+            )
+
+        # Shift button mapping
+        mappings.extend(
+            [
                 MIDIMapping(
                     message_type=MIDIMessageType.NOTE_ON,
                     channel=0,
-                    note=midi_note,
-                    control_id=btn_name,
+                    note=self.SHIFT_BUTTON_NOTE,
+                    control_id="shift",
                     signal_type="note",
                 ),
                 MIDIMapping(
                     message_type=MIDIMessageType.NOTE_OFF,
                     channel=0,
-                    note=midi_note,
-                    control_id=btn_name,
+                    note=self.SHIFT_BUTTON_NOTE,
+                    control_id="shift",
                     signal_type="note",
                 ),
-            ])
-
-        # Shift button mapping
-        mappings.extend([
-            MIDIMapping(
-                message_type=MIDIMessageType.NOTE_ON,
-                channel=0,
-                note=self.SHIFT_BUTTON_NOTE,
-                control_id="shift",
-                signal_type="note",
-            ),
-            MIDIMapping(
-                message_type=MIDIMessageType.NOTE_OFF,
-                channel=0,
-                note=self.SHIFT_BUTTON_NOTE,
-                control_id="shift",
-                signal_type="note",
-            ),
-        ])
+            ],
+        )
 
         return mappings
 
     def init(
         self,
         send_message: Callable[[mido.Message], None],
-        receive_message: Callable[[float], Optional[mido.Message]] = None
+        receive_message: Callable[[float], Optional[mido.Message]] = None,
     ) -> dict[str, int]:
         """
         Initialize APC mini MK2 to known state.
@@ -914,7 +922,7 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
 
             # Wait for response with timeout
             response_msg = receive_message(1.0)  # 1 second timeout
-            if response_msg and response_msg.type == 'sysex':
+            if response_msg and response_msg.type == "sysex":
                 response = APCminiMK2IntroResponse.from_sysex_data(response_msg.data)
                 if response:
                     for i, pos in enumerate(response.fader_positions, 1):
@@ -934,22 +942,12 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
 
         # Clear all fader control / navigation button LEDs
         for midi_note in self.FADER_CTRL_BUTTONS.values():
-            msg = mido.Message(
-                'note_on',
-                channel=0,
-                note=midi_note,
-                velocity=self.SINGLE_LED_OFF
-            )
+            msg = mido.Message("note_on", channel=0, note=midi_note, velocity=self.SINGLE_LED_OFF)
             send_message(msg)
 
         # Clear all scene button LEDs
         for midi_note in self.SCENE_BUTTONS.values():
-            msg = mido.Message(
-                'note_on',
-                channel=0,
-                note=midi_note,
-                velocity=self.SINGLE_LED_OFF
-            )
+            msg = mido.Message("note_on", channel=0, note=midi_note, velocity=self.SINGLE_LED_OFF)
             send_message(msg)
 
         # Reset color tracking
@@ -981,12 +979,7 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
 
                 # Stop any blink/pulse animations ONLY on animation channels (NOT channel 6)
                 # Sending on channel 6 would put solid pads into Note On mode, blocking SysEx
-                stop_msg = mido.Message(
-                    'note_on',
-                    channel=self.LED_CHANNEL_SOLID,
-                    note=pad_note,
-                    velocity=0
-                )
+                stop_msg = mido.Message("note_on", channel=self.LED_CHANNEL_SOLID, note=pad_note, velocity=0)
                 send_message(stop_msg)
                 time.sleep(message_delay)
 
@@ -997,23 +990,13 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
 
         # Clear all fader control / navigation button LEDs
         for midi_note in self.FADER_CTRL_BUTTONS.values():
-            msg = mido.Message(
-                'note_on',
-                channel=0,
-                note=midi_note,
-                velocity=self.SINGLE_LED_OFF
-            )
+            msg = mido.Message("note_on", channel=0, note=midi_note, velocity=self.SINGLE_LED_OFF)
             send_message(msg)
             time.sleep(message_delay)
 
         # Clear all scene button LEDs
         for midi_note in self.SCENE_BUTTONS.values():
-            msg = mido.Message(
-                'note_on',
-                channel=0,
-                note=midi_note,
-                velocity=self.SINGLE_LED_OFF
-            )
+            msg = mido.Message("note_on", channel=0, note=midi_note, velocity=self.SINGLE_LED_OFF)
             send_message(msg)
             time.sleep(message_delay)
 
@@ -1065,10 +1048,10 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
 
             # Get color and LED mode from state
             # Use 'or' to handle both missing key AND None value
-            color = state_dict.get('color') or 'off'
-            led_mode = state_dict.get('led_mode') or 'solid'  # Runtime mode
-            definition_led_mode = state_dict.get('definition_led_mode') or 'solid'  # Configured mode
-            is_on = state_dict.get('is_on', False)
+            color = state_dict.get("color") or "off"
+            state_dict.get("led_mode") or "solid"  # Runtime mode
+            definition_led_mode = state_dict.get("definition_led_mode") or "solid"  # Configured mode
+            is_on = state_dict.get("is_on", False)
 
             # Parse color string to RGB
             rgb_color = APCminiMK2RGBColor.from_string(color)
@@ -1082,28 +1065,18 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
             # 3. CAN go from solid (ch 0x90-0x96) to SysEx
             # So: blink/pulse → solid (vel=0) → delay → SysEx works!
 
-            if definition_led_mode in ('pulse', 'blink'):
+            if definition_led_mode in ("pulse", "blink"):
                 # PULSE/BLINK PADS
                 if is_on:
                     # ON: Use animation channel with palette color velocity
                     velocity = self._find_nearest_palette_color(rgb_color.r, rgb_color.g, rgb_color.b)
                     channel = self._get_led_mode_channel(definition_led_mode)
-                    msg = mido.Message(
-                        'note_on',
-                        channel=channel,
-                        note=pad_note,
-                        velocity=velocity
-                    )
+                    msg = mido.Message("note_on", channel=channel, note=pad_note, velocity=velocity)
                     messages.append(msg)
                 else:
                     # OFF: Switch to solid mode first, then SysEx for true RGB off_color
                     # Step 1: Note On solid channel (vel=0) to exit blink/pulse mode
-                    solid_msg = mido.Message(
-                        'note_on',
-                        channel=self.LED_CHANNEL_SOLID,
-                        note=pad_note,
-                        velocity=0
-                    )
+                    solid_msg = mido.Message("note_on", channel=self.LED_CHANNEL_SOLID, note=pad_note, velocity=0)
                     messages.append(solid_msg)
                     # Step 2: SysEx for true RGB off_color
                     # (delay between messages handled by feedback_message_delay)
@@ -1117,39 +1090,25 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
         # Handle fader control / navigation button feedback (single red LED)
         elif control_id in self.FADER_CTRL_BUTTONS:
             midi_note = self.FADER_CTRL_BUTTONS[control_id]
-            is_on = state_dict.get('is_on', False)
+            is_on = state_dict.get("is_on", False)
             velocity = self.SINGLE_LED_ON if is_on else self.SINGLE_LED_OFF
 
-            msg = mido.Message(
-                'note_on',
-                channel=0,
-                note=midi_note,
-                velocity=velocity
-            )
+            msg = mido.Message("note_on", channel=0, note=midi_note, velocity=velocity)
             messages.append(msg)
 
         # Handle scene button feedback (single green LED)
         elif control_id in self.SCENE_BUTTONS:
             midi_note = self.SCENE_BUTTONS[control_id]
-            is_on = state_dict.get('is_on', False)
+            is_on = state_dict.get("is_on", False)
             velocity = self.SINGLE_LED_ON if is_on else self.SINGLE_LED_OFF
 
-            msg = mido.Message(
-                'note_on',
-                channel=0,
-                note=midi_note,
-                velocity=velocity
-            )
+            msg = mido.Message("note_on", channel=0, note=midi_note, velocity=velocity)
             messages.append(msg)
 
         # Faders and shift button have no feedback capability
         return messages
 
-    def _build_pad_rgb_sysex(
-        self,
-        pad_note: int,
-        color: APCminiMK2RGBColor
-    ) -> mido.Message:
+    def _build_pad_rgb_sysex(self, pad_note: int, color: APCminiMK2RGBColor) -> mido.Message:
         """
         Build SysEx message to set a single pad's RGB color.
 
@@ -1160,9 +1119,5 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
         Returns:
             SysEx MIDI message
         """
-        update = APCminiMK2PadRGBUpdate(
-            start_pad=pad_note,
-            end_pad=pad_note,
-            color=color
-        )
+        update = APCminiMK2PadRGBUpdate(start_pad=pad_note, end_pad=pad_note, color=color)
         return update.to_sysex_message()
