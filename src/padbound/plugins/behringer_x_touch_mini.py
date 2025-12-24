@@ -68,6 +68,7 @@ from ..controls import (
     ControlDefinition,
     ControlState,
     ControlType,
+    ControlTypeModes,
     ControlCapabilities,
     ControllerCapabilities,
     BankDefinition,
@@ -220,13 +221,18 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
                     )
                 )
 
-            # 16 pads per bank (TOGGLE with LED feedback)
+            # 16 pads per bank (TOGGLE with LED feedback, configurable to MOMENTARY)
             for i in range(1, self.PAD_COUNT + 1):
                 definitions.append(
                     ControlDefinition(
                         control_id=f"pad_{i}@{layer}",
                         control_type=ControlType.TOGGLE,
                         category="pad",
+                        type_modes=ControlTypeModes(
+                            supported_types=[ControlType.TOGGLE, ControlType.MOMENTARY],
+                            default_type=ControlType.TOGGLE,
+                            requires_hardware_sync=False,  # Mode is software-only
+                        ),
                         capabilities=ControlCapabilities(
                             supports_feedback=True,
                             requires_feedback=True,  # Library must send LED updates
@@ -307,17 +313,24 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
                 ),
             ])
 
-        # Pads (Notes 8-23) - NOTE_ON only for toggle behavior
+        # Pads (Notes 8-23) - NOTE_ON and NOTE_OFF for both TOGGLE and MOMENTARY support
         for i, note in enumerate(LAYER_A_PADS, start=1):
-            mappings.append(
+            mappings.extend([
                 MIDIMapping(
                     message_type=MIDIMessageType.NOTE_ON,
                     channel=MIDI_CHANNEL,
                     note=note,
                     control_id=f"pad_{i}@{layer}",
                     signal_type="note",
-                )
-            )
+                ),
+                MIDIMapping(
+                    message_type=MIDIMessageType.NOTE_OFF,
+                    channel=MIDI_CHANNEL,
+                    note=note,
+                    control_id=f"pad_{i}@{layer}",
+                    signal_type="note",
+                ),
+            ])
 
         # Knobs (CC 1-8)
         for i, cc in enumerate(LAYER_A_KNOBS, start=1):
@@ -364,17 +377,24 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
                 ),
             ])
 
-        # Pads (Notes 32-47) - NOTE_ON only for toggle behavior
+        # Pads (Notes 32-47) - NOTE_ON and NOTE_OFF for both TOGGLE and MOMENTARY support
         for i, note in enumerate(LAYER_B_PADS, start=1):
-            mappings.append(
+            mappings.extend([
                 MIDIMapping(
                     message_type=MIDIMessageType.NOTE_ON,
                     channel=MIDI_CHANNEL,
                     note=note,
                     control_id=f"pad_{i}@{layer}",
                     signal_type="note",
-                )
-            )
+                ),
+                MIDIMapping(
+                    message_type=MIDIMessageType.NOTE_OFF,
+                    channel=MIDI_CHANNEL,
+                    note=note,
+                    control_id=f"pad_{i}@{layer}",
+                    signal_type="note",
+                ),
+            ])
 
         # Knobs (CC 11-18)
         for i, cc in enumerate(LAYER_B_KNOBS, start=1):
@@ -639,25 +659,33 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
         control_definition: ControlDefinition,
     ) -> Optional[ControlState]:
         """
-        Compute control state with deferred feedback for pads.
+        Compute control state with deferred feedback for TOGGLE pads.
 
-        For pad Note On events:
+        For TOGGLE pads (Note On only):
         - Toggle the state (flip is_on)
         - Mark for deferred feedback (LED will be set on Note Off)
+
+        For MOMENTARY pads:
+        - Use default framework behavior (is_on follows Note On/Off)
 
         Args:
             control_id: Control identifier (e.g., "pad_1@layer_a")
             value: Raw MIDI value (0-127)
             signal_type: Signal type from translate_input
             current_state: Current control state
-            control_definition: Control definition
+            control_definition: Control definition (resolved with config overrides)
 
         Returns:
-            ControlState for pads (with deferred feedback marked),
-            None for other controls (use default behavior)
+            ControlState for TOGGLE pads (with deferred feedback marked),
+            None for MOMENTARY pads and other controls (use default behavior)
         """
-        # For pad Note On, toggle state and mark for deferred feedback
-        if "pad_" in control_id and "button" not in control_id and value > 0:
+        # Only apply custom toggle logic for TOGGLE pads
+        # MOMENTARY pads use default framework behavior
+        is_pad = "pad_" in control_id and "button" not in control_id
+        is_toggle = control_definition.control_type == ControlType.TOGGLE
+
+        if is_pad and is_toggle and value > 0:
+            # TOGGLE pad: flip state on Note On, defer feedback until Note Off
             new_is_on = not current_state.is_on
             # Mark for deferred feedback (will be sent on Note Off)
             self._pending_feedback[control_id] = new_is_on
@@ -675,7 +703,7 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
                 led_mode=led_mode,
             )
 
-        return None  # Use default behavior for other controls
+        return None  # Use default behavior for MOMENTARY pads and other controls
 
     def translate_feedback(
         self, control_id: str, state_dict: dict
@@ -683,7 +711,8 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
         """
         Translate control state to MIDI feedback messages.
 
-        For pads: Returns empty list (deferred feedback is sent in translate_input on Note Off)
+        For TOGGLE pads: Returns empty list (deferred feedback sent in translate_input on Note Off)
+        For MOMENTARY pads: Immediate feedback (Note On with velocity)
         For knob-buttons: Note On with velocity 127 (on) or 0 (off)
         For knobs: CC for value setting
 
@@ -697,10 +726,22 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
         messages = []
         is_on = state_dict.get("is_on", False)
 
-        # Handle pads - suppress auto-feedback (deferred feedback sent in translate_input on Note Off)
+        # Handle pads
         if "pad_" in control_id and "button" not in control_id:
-            logger.debug(f"FEEDBACK SUPPRESSED for {control_id} (using deferred feedback)")
-            return []  # Always return empty - feedback is sent on Note Off
+            # TOGGLE pads have pending feedback - suppress auto-feedback
+            # MOMENTARY pads don't have pending feedback - allow immediate feedback
+            if control_id in self._pending_feedback:
+                logger.debug(f"FEEDBACK SUPPRESSED for {control_id} (using deferred feedback)")
+                return []  # Deferred feedback will be sent on Note Off
+            else:
+                # MOMENTARY pad - send immediate feedback
+                note = self._get_feedback_note(control_id)
+                if note is not None:
+                    velocity = 127 if is_on else 0
+                    msg = mido.Message('note_on', channel=MIDI_CHANNEL, note=note, velocity=velocity)
+                    logger.debug(f"MOMENTARY FEEDBACK: {control_id} -> note={note} velocity={velocity}")
+                    messages.append(msg)
+                return messages
 
         # Handle knob-buttons (Note On for LED)
         elif "knob_button_" in control_id:

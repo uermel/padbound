@@ -26,7 +26,7 @@ import logging
 import time
 from padbound.controller import Controller
 from padbound.plugins.behringer_x_touch_mini import BehringerXTouchMiniPlugin
-from padbound.config import ControllerConfig, BankConfig
+from padbound.config import ControllerConfig, BankConfig, ControlConfig
 from padbound.controls import ControlType, ControlState
 from padbound.logging_config import setup_logging, set_module_level, get_logger
 
@@ -46,19 +46,38 @@ def create_example_config() -> ControllerConfig:
 
     The X-Touch Mini has:
     - 2 banks (Layer A, Layer B)
-    - LED feedback for pads (software-managed toggle)
+    - LED feedback for pads (software-managed toggle or momentary)
     - LED feedback for knob-buttons (momentary, lights while pressed)
 
-    Since pads default to TOGGLE mode with LED feedback, minimal config is needed.
+    Layer A configuration:
+    - Row 1 (pads 1-8): TOGGLE mode - press to turn on, press again to turn off
+    - Row 2 (pads 9-16): MOMENTARY mode - LED lights only while pressed
+
+    Layer B: All default (TOGGLE mode)
     """
+    # Build Layer A controls - mix of toggle and momentary
+    layer_a_controls = {}
+
+    # Row 1 (pads 1-8): TOGGLE mode (default, but explicit for clarity)
+    for i in range(1, 9):
+        layer_a_controls[f"pad_{i}"] = ControlConfig(
+            type=ControlType.TOGGLE,
+        )
+
+    # Row 2 (pads 9-16): MOMENTARY mode - lights only while pressed
+    for i in range(9, 17):
+        layer_a_controls[f"pad_{i}"] = ControlConfig(
+            type=ControlType.MOMENTARY,
+        )
+
     config = ControllerConfig(
         banks={
-            # Layer A - default toggle mode for pads
+            # Layer A - mix of toggle and momentary pads
             "layer_a": BankConfig(
-                controls={},  # Use defaults
+                controls=layer_a_controls,
             ),
 
-            # Layer B - default toggle mode for pads
+            # Layer B - default toggle mode for all pads
             "layer_b": BankConfig(
                 controls={},  # Use defaults
             ),
@@ -146,11 +165,14 @@ def main():
     print("\n1. Creating configuration...")
     config = create_example_config()
     print("   Configuration created for 2 banks:")
-    print("      - Layer A: Toggle pads, momentary knob-buttons")
-    print("      - Layer B: Toggle pads, momentary knob-buttons")
+    print("      - Layer A:")
+    print("          Row 1 (pads 1-8): TOGGLE mode")
+    print("          Row 2 (pads 9-16): MOMENTARY mode")
+    print("      - Layer B: All pads TOGGLE mode")
     print("")
     print("   LED Feedback:")
-    print("      - Pads: LED reflects toggle state (ON/OFF)")
+    print("      - Toggle pads: LED reflects state (ON/OFF)")
+    print("      - Momentary pads: LED lights while pressed")
     print("      - Knob-buttons: LED lights while pressed")
     print("      - Knobs: LED rings auto-reflect encoder position")
 
@@ -217,9 +239,10 @@ def main():
     print("           Turn = Knob (continuous)")
     print("")
     print("  Middle:  16 Pads (2 rows of 8)")
-    print("           Row 1: [1] [2] [3] [4] [5] [6] [7] [8]")
-    print("           Row 2: [9] [10] [11] [12] [13] [14] [15] [16]")
-    print("           Press = Toggle ON/OFF with LED feedback")
+    print("           Row 1: [1] [2] [3] [4] [5] [6] [7] [8]  - TOGGLE")
+    print("           Row 2: [9] [10] [11] [12] [13] [14] [15] [16]  - MOMENTARY (Layer A)")
+    print("           Toggle = Press to turn on, press again to turn off")
+    print("           Momentary = LED lights only while pressed")
     print("")
     print("  Bottom:  Fader (continuous, not motorized)")
     print("")
@@ -231,7 +254,8 @@ def main():
     print("Listening for events... (Press Ctrl+C to exit)")
     print("="*60)
     print("\nTry:")
-    print("  - Press pads to toggle them on/off (LEDs reflect state)")
+    print("  - Press row 1 pads (1-8) to toggle on/off (LED stays lit)")
+    print("  - Press row 2 pads (9-16) for momentary triggers (LED only while pressed)")
     print("  - Press encoder knobs for momentary triggers")
     print("  - Turn encoders to see continuous values (0-127)")
     print("  - Move the fader to see continuous values")
