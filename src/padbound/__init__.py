@@ -7,7 +7,7 @@ differences behind a simple API. Applications interact with three control types
 underlying MIDI implementation.
 """
 
-__version__ = "0.2.0"
+__version__ = "0.1.0"
 
 # Main API
 # Configuration models
