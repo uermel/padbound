@@ -125,6 +125,7 @@ from padbound.controls import (
     ControlCapabilities,
     ControlDefinition,
     ControllerCapabilities,
+    ControlState,
     ControlType,
     ControlTypeModes,
 )
@@ -268,6 +269,8 @@ class PreSonusAtomPlugin(ControllerPlugin):
         super().__init__()
         # Track current pad colors for state management
         self._current_pad_colors: dict[str, tuple[int, int, int]] = {}
+        # Track encoder positions for relative-to-absolute conversion
+        self._encoder_positions: dict[str, int] = {}
 
     @property
     def name(self) -> str:
@@ -485,6 +488,10 @@ class PreSonusAtomPlugin(ControllerPlugin):
         # Reset color tracking
         self._current_pad_colors = {}
 
+        # Initialize encoder positions to center (64)
+        for i in range(1, self.ENCODER_COUNT + 1):
+            self._encoder_positions[f"encoder_{i}"] = 64
+
         logger.info("PreSonus Atom initialization complete")
         return {}
 
@@ -634,3 +641,44 @@ class PreSonusAtomPlugin(ControllerPlugin):
 
         # Let default mapping handle everything else (pads, buttons)
         return super().translate_input(msg)
+
+    def compute_control_state(
+        self,
+        control_id: str,
+        value: int,
+        signal_type: str,
+        current_state: ControlState,
+        control_definition: ControlDefinition,
+    ) -> Optional[ControlState]:
+        """
+        Convert encoder deltas to absolute positions.
+
+        For encoders (signal_type="relative"), this accumulates the delta values
+        into a tracked position (0-127) so that all continuous controls return
+        consistent normalized values.
+
+        Args:
+            control_id: Control identifier (e.g., "encoder_1")
+            value: Raw value from translate_input (delta for encoders)
+            signal_type: "relative" for encoders, "cc" for absolute controls
+            current_state: Current control state
+            control_definition: Control definition
+
+        Returns:
+            ControlState with accumulated position for encoders,
+            None for other controls (use default behavior)
+        """
+        if signal_type == "relative" and control_id.startswith("encoder_"):
+            # Accumulate delta, clamp to 0-127
+            current_pos = self._encoder_positions.get(control_id, 64)
+            new_pos = max(0, min(127, current_pos + value))
+            self._encoder_positions[control_id] = new_pos
+
+            # Return state with accumulated position (not delta)
+            return ControlState(
+                control_id=control_id,
+                value=new_pos,
+                normalized_value=new_pos / 127.0,
+            )
+
+        return None  # Use default handling for other controls

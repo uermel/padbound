@@ -120,10 +120,6 @@ def create_example_config() -> ControllerConfig:
     return config
 
 
-# Track encoder states (simulated 0-127 range, initialized to center)
-encoder_states = {f"encoder_{i}": 64 for i in range(1, 5)}
-
-
 def on_pad_change(control_id: str, state: ControlState):
     """Callback for pad events (both TOGGLE and MOMENTARY)."""
     pad_num = int(control_id.split("_")[1])
@@ -133,17 +129,23 @@ def on_pad_change(control_id: str, state: ControlState):
     print(f"[PAD {pad_num:>2d}] {status} ({mode}) color={state.color}")
 
 
-def on_encoder_change(control_id: str, state: ControlState):
-    """Callback for encoder events (relative mode with simulated state)."""
-    enc_num = control_id.split("_")[1]
-    # Update tracked state with delta, clamped to 0-127
-    new_value = encoder_states[control_id] + state.value
-    new_value = max(0, min(127, new_value))
-    encoder_states[control_id] = new_value
+# Track previous encoder values for direction display (plugin handles accumulation internally)
+_prev_encoder_values: dict[str, int] = {}
 
-    direction = "CW " if state.value > 0 else "CCW"
-    bar = "█" * (new_value // 4)  # Visual bar (0-31 chars)
-    print(f"[ENCODER {enc_num}] {direction} {new_value:3d}/127 [{bar:<31s}] (delta={state.value:+d})")
+
+def on_encoder_change(control_id: str, state: ControlState):
+    """Callback for encoder events (now returns accumulated 0-127 values)."""
+    enc_num = control_id.split("_")[1]
+    value = state.value
+
+    # Determine direction from previous value (for display only)
+    prev_value = _prev_encoder_values.get(control_id, 64)
+    delta = value - prev_value
+    _prev_encoder_values[control_id] = value
+
+    direction = "CW " if delta > 0 else "CCW" if delta < 0 else "   "
+    bar = "█" * (value // 4)  # Visual bar (0-31 chars)
+    print(f"[ENCODER {enc_num}] {direction} {value:3d}/127 [{bar:<31s}]")
 
 
 def on_transport_button(control_id: str, state: ControlState):
@@ -261,9 +263,9 @@ def main():
     print("  - Press pads (row 4, top) for momentary behavior")
     print("    * Lights up bright ONLY while pressed")
     print("    * Goes dark immediately when released")
-    print("  - Turn encoders to see relative values")
-    print("    * Clockwise: +1")
-    print("    * Counter-clockwise: -1")
+    print("  - Turn encoders to see accumulated values (0-127)")
+    print("    * Clockwise: increases value")
+    print("    * Counter-clockwise: decreases value")
     print("  - Press transport buttons:")
     print("    * Click, Record, Play, Stop")
     print("    * LEDs light up while pressed (momentary)")
