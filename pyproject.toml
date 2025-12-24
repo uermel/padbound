@@ -18,10 +18,10 @@ dependencies = [
 authors = [
     { name = "Utz H. Ermel", email = "utz@ermel.me" },
 ]
-description = "Abstract MIDI pad interface."
+description = "A stateful python interface for USB MIDI controllers."
 readme = "README.md"
 license = { file = "LICENSE" }
-keywords = ["MIDI", "stateful", "interface"]
+keywords = ["MIDI", "stateful", "interface", "controller", "control surface"]
 
 [project.urls]
 Repository = "https://github.com/uermel/padbound.git"
