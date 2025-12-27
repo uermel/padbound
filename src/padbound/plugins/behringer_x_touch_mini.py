@@ -657,7 +657,7 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
         signal_type: str,
         current_state: ControlState,
         control_definition: ControlDefinition,
-    ) -> Optional[ControlState]:
+    ) -> tuple[Optional[ControlState], bool]:
         """
         Compute control state with deferred feedback for TOGGLE pads.
 
@@ -695,15 +695,22 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
 
             # Return new state (callback will fire once here)
             # NOTE: control_id is REQUIRED by ControlState
-            return ControlState(
-                control_id=control_id,  # REQUIRED!
-                is_on=new_is_on,
-                value=value,
-                color=control_definition.on_color if new_is_on else control_definition.off_color,
-                led_mode=led_mode,
+            return (
+                ControlState(
+                    control_id=control_id,  # REQUIRED!
+                    is_on=new_is_on,
+                    value=value,
+                    color=control_definition.on_color if new_is_on else control_definition.off_color,
+                    led_mode=led_mode,
+                ),
+                True,
             )
 
-        return None  # Use default behavior for MOMENTARY pads and other controls
+        # For toggle pads on Note Off (value == 0), skip callback to avoid double-triggering
+        if is_pad and is_toggle and value == 0:
+            return (None, False)
+
+        return (None, True)  # Use default behavior for MOMENTARY pads and other controls
 
     def translate_feedback(self, control_id: str, state_dict: dict) -> list[mido.Message]:
         """

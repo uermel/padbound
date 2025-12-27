@@ -9,7 +9,7 @@ and hardware-specific initialization/shutdown sequences.
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Callable, Literal, Optional, Union
+from typing import TYPE_CHECKING, Any, Callable, Literal, Optional, Tuple, Union
 
 import mido
 from pydantic import BaseModel, Field
@@ -603,9 +603,9 @@ class ControllerPlugin(ABC):
         signal_type: str,
         current_state: "ControlState",
         control_definition: "ControlDefinition",
-    ) -> Optional["ControlState"]:
+    ) -> Tuple[Optional["ControlState"], bool]:
         """
-        Compute new state for a control.
+        Compute new state for a control and inform controller whether callback should be triggered.
 
         Override this method when hardware manages state internally
         (e.g., toggle state tracked by controller, not software).
@@ -629,7 +629,7 @@ class ControllerPlugin(ABC):
             ControlState if plugin handles state computation,
             None to use default control type behavior.
         """
-        return None  # Default: use standard control type behavior
+        return None, True  # Default: use standard control type behavior and trigger callback
 
     # Helper methods
 

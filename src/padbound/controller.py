@@ -918,7 +918,7 @@ class Controller:
         # Update state - allow plugin to compute state for hardware-managed controls
         try:
             # Check if plugin wants to compute state itself
-            plugin_state = self._plugin.compute_control_state(
+            plugin_state, trigger_callback = self._plugin.compute_control_state(
                 control_id=control_id,
                 value=value,
                 signal_type=signal_type,
@@ -934,9 +934,10 @@ class Controller:
                 new_state = self._state.update_state(control_id, value)
 
             # Fire callbacks with control type and category
-            control_type = control.definition.control_type
-            category = control.definition.category
-            self._callbacks.on_control_change(control_id, new_state, control_type, signal_type, category)
+            if trigger_callback:
+                control_type = control.definition.control_type
+                category = control.definition.category
+                self._callbacks.on_control_change(control_id, new_state, control_type, signal_type, category)
 
             # Auto-send feedback if control REQUIRES it (hardware doesn't manage LEDs)
             # Works for both color-based (pads) and on/off-based (buttons) controls

@@ -679,7 +679,7 @@ class PreSonusAtomPlugin(ControllerPlugin):
         signal_type: str,
         current_state: ControlState,
         control_definition: ControlDefinition,
-    ) -> Optional[ControlState]:
+    ) -> tuple[Optional[ControlState], bool]:
         """
         Convert encoder deltas to absolute positions.
 
@@ -705,10 +705,13 @@ class PreSonusAtomPlugin(ControllerPlugin):
             self._encoder_positions[control_id] = new_pos
 
             # Return state with accumulated position (not delta)
-            return ControlState(
-                control_id=control_id,
-                value=new_pos,
-                normalized_value=new_pos / 127.0,
+            return (
+                ControlState(
+                    control_id=control_id,
+                    value=new_pos,
+                    normalized_value=new_pos / 127.0,
+                ),
+                True,
             )
 
-        return None  # Use default handling for other controls
+        return (None, True)  # Use default handling for other controls

@@ -226,7 +226,7 @@ References:
 import colorsys
 import time
 from datetime import datetime
-from typing import Callable, Optional
+from typing import Callable, Optional, Tuple
 
 import mido
 from pydantic import BaseModel, Field
@@ -458,8 +458,8 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
     # LED mode channels for Note On method (pad LED control with palette colors)
     # These are MIDI channel numbers (0-indexed) for mido.Message
     LED_CHANNEL_SOLID = 6  # 100% brightness, solid
-    LED_CHANNEL_PULSE = 9  # 1/4 note pulse (medium speed)
-    LED_CHANNEL_BLINK = 14  # 1/4 note blink (medium speed)
+    LED_CHANNEL_PULSE = 10  # 1/2 note pulse (slowest, default)
+    LED_CHANNEL_BLINK = 15  # 1/2 note blink (slowest, default)
 
     # 128-color palette for Note On LED control
     # Maps velocity values to approximate RGB colors
@@ -606,9 +606,9 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
         # Track current pad colors for state management (RGB tuples)
         self._current_pad_colors: dict[str, tuple[int, int, int]] = {}
         # Track current pad LED modes for mode transition handling
-        # Values: "solid", "pulse", or "blink"
+        # Values: LEDAnimationType.SOLID, LEDAnimationType.PULSE, or LEDAnimationType.BLINK
         # When switching from pulse/blink to solid, a mode transition is required
-        self._current_pad_modes: dict[str, str] = {}
+        self._current_pad_modes: dict[str, LEDAnimationType] = {}
         # Track discovered fader positions
         self._fader_positions: dict[str, int] = {}
 
@@ -637,21 +637,44 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
                 nearest_velocity = velocity
         return nearest_velocity
 
-    def _get_led_mode_channel(self, led_mode: str) -> int:
+    def _get_led_mode_channel(self, led_mode: LEDMode) -> int:
         """Get MIDI channel for the specified LED mode.
 
+        Supports frequency-based speed selection when LEDMode.frequency is set.
+
+        Frequency mapping (pulses per second at ~120 BPM):
+        - Pulse: >= 8 Hz → 1/16, >= 4 Hz → 1/8, >= 2 Hz → 1/4, else → 1/2 (slowest)
+        - Blink: >= 12 Hz → 1/24, >= 8 Hz → 1/16, >= 4 Hz → 1/8, >= 2 Hz → 1/4, else → 1/2
+
         Args:
-            led_mode: LED mode ("solid", "pulse", or "blink")
+            led_mode: LEDMode object with animation_type and optional frequency
 
         Returns:
             MIDI channel number (0-indexed) for Note On message
         """
-        if led_mode == "pulse":
-            return self.LED_CHANNEL_PULSE
-        elif led_mode == "blink":
-            return self.LED_CHANNEL_BLINK
-        else:
-            return self.LED_CHANNEL_SOLID
+        if led_mode.animation_type == LEDAnimationType.PULSE:
+            if led_mode.frequency:
+                if led_mode.frequency >= 8:
+                    return 7  # 1/16 note (fastest)
+                elif led_mode.frequency >= 4:
+                    return 8  # 1/8 note
+                elif led_mode.frequency >= 2:
+                    return 9  # 1/4 note
+            return self.LED_CHANNEL_PULSE  # 1/2 note (slowest, default)
+
+        elif led_mode.animation_type == LEDAnimationType.BLINK:
+            if led_mode.frequency:
+                if led_mode.frequency >= 12:
+                    return 11  # 1/24 note (fastest)
+                elif led_mode.frequency >= 8:
+                    return 12  # 1/16 note
+                elif led_mode.frequency >= 4:
+                    return 13  # 1/8 note
+                elif led_mode.frequency >= 2:
+                    return 14  # 1/4 note
+            return self.LED_CHANNEL_BLINK  # 1/2 note (slowest, default)
+
+        return self.LED_CHANNEL_SOLID
 
     @property
     def name(self) -> str:
@@ -1109,14 +1132,15 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
             # Get color and LED mode from state
             # Use 'or' to handle both missing key AND None value
             color = state_dict.get("color") or "off"
-            led_mode = state_dict.get("led_mode") or "solid"  # Runtime mode from set_state()
-            definition_led_mode = (
-                state_dict.get("definition_led_mode") or led_mode
-            )  # Prefer definition, fallback to runtime
+            led_mode: LEDMode | None = state_dict.get("led_mode")
+            definition_led_mode: LEDMode | None = state_dict.get("definition_led_mode") or led_mode
             is_on = state_dict.get("is_on", False)
 
+            # Get animation type from LEDMode (default to SOLID)
+            animation_type = definition_led_mode.animation_type if definition_led_mode else LEDAnimationType.SOLID
+
             logger.debug(
-                f"translate_feedback: {control_id} color={color} led_mode={led_mode} definition_led_mode={definition_led_mode} is_on={is_on}",
+                f"translate_feedback: {control_id} color={color} animation_type={animation_type} is_on={is_on}",
             )
 
             # Parse color string to RGB
@@ -1126,7 +1150,7 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
             self._current_pad_colors[control_id] = (rgb_color.r, rgb_color.g, rgb_color.b)
 
             # Get the pad's CURRENT mode (from tracking) to determine if transition needed
-            current_mode = self._current_pad_modes.get(control_id, "solid")
+            current_mode = self._current_pad_modes.get(control_id, LEDAnimationType.SOLID)
 
             # LED CONTROL RULES (hardware behavior):
             # 1. Need >=0.001s delay between Note On and SysEx
@@ -1136,7 +1160,7 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
             # So: blink/pulse → solid (vel=0) → delay → SysEx works!
             # And: SysEx (solid) → solid (vel=0) → animation works!
 
-            if definition_led_mode in ("pulse", "blink"):
+            if animation_type in (LEDAnimationType.PULSE, LEDAnimationType.BLINK):
                 # PULSE/BLINK PADS
                 if is_on:
                     # ON: Use animation channel with palette color velocity
@@ -1147,7 +1171,7 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
                     msg = mido.Message("note_on", channel=channel, note=pad_note, velocity=velocity)
                     messages.append(msg)
                     # Track that this pad is now in pulse/blink mode
-                    self._current_pad_modes[control_id] = definition_led_mode
+                    self._current_pad_modes[control_id] = animation_type
                 else:
                     # OFF: Switch to solid mode first, then SysEx for true RGB off_color
                     # Step 1: Note On solid channel (vel=0) to exit blink/pulse mode
@@ -1158,17 +1182,17 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
                     sysex_msg = self._build_pad_rgb_sysex(pad_note, rgb_color)
                     messages.append(sysex_msg)
                     # Track that this pad is now in solid mode
-                    self._current_pad_modes[control_id] = "solid"
+                    self._current_pad_modes[control_id] = LEDAnimationType.SOLID
             else:
                 # SOLID mode requested
                 # Check if CURRENT mode is pulse/blink - need mode transition first
-                if current_mode in ("pulse", "blink"):
+                if current_mode in (LEDAnimationType.PULSE, LEDAnimationType.BLINK):
                     solid_msg = mido.Message("note_on", channel=self.LED_CHANNEL_SOLID, note=pad_note, velocity=0)
                     messages.append(solid_msg)
                 sysex_msg = self._build_pad_rgb_sysex(pad_note, rgb_color)
                 messages.append(sysex_msg)
                 # Track that this pad is now in solid mode
-                self._current_pad_modes[control_id] = "solid"
+                self._current_pad_modes[control_id] = LEDAnimationType.SOLID
                 logger.debug(
                     f"translate_feedback: Built SysEx RGB for pad_note={pad_note} rgb=({rgb_color.r},{rgb_color.g},{rgb_color.b})",
                 )
@@ -1239,28 +1263,31 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
                 pad_note = self.PAD_START_NOTE + (row * 8) + col
 
                 color = state_dict.get("color") or "off"
-                led_mode = state_dict.get("led_mode") or "solid"
-                definition_led_mode = state_dict.get("definition_led_mode") or led_mode
+                led_mode: LEDMode | None = state_dict.get("led_mode")
+                definition_led_mode: LEDMode | None = state_dict.get("definition_led_mode") or led_mode
                 is_on = state_dict.get("is_on", False)
+
+                # Get animation type from LEDMode (default to SOLID)
+                animation_type = definition_led_mode.animation_type if definition_led_mode else LEDAnimationType.SOLID
 
                 rgb_color = APCminiMK2RGBColor.from_string(color)
                 self._current_pad_colors[control_id] = (rgb_color.r, rgb_color.g, rgb_color.b)
 
                 # Get the pad's CURRENT mode (from tracking) to determine if transition needed
-                current_mode = self._current_pad_modes.get(control_id, "solid")
+                current_mode = self._current_pad_modes.get(control_id, LEDAnimationType.SOLID)
 
                 print(
                     f"[APC] batch: {control_id} note={pad_note} rgb=({rgb_color.r},{rgb_color.g},{rgb_color.b}) "
-                    f"led_mode={led_mode} def_led_mode={definition_led_mode} is_on={is_on} current_mode={current_mode}",
+                    f"animation_type={animation_type} is_on={is_on} current_mode={current_mode}",
                 )
 
-                if definition_led_mode in ("pulse", "blink"):
+                if animation_type in (LEDAnimationType.PULSE, LEDAnimationType.BLINK):
                     if is_on:
                         # ON: Use animation channel with palette color velocity
                         # IMPORTANT: When transitioning from solid (SysEx mode) to pulse/blink,
                         # we need a prep message first to reset the pad - just like pulse→solid.
                         # Without this, the hardware ignores the pulse Note On.
-                        if current_mode == "solid":
+                        if current_mode == LEDAnimationType.SOLID:
                             print(
                                 f"[APC]   -> PREP: Note On ch={self.LED_CHANNEL_SOLID} note={pad_note} vel=0 (solid→pulse)",
                             )
@@ -1270,11 +1297,11 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
                         velocity = self._find_nearest_palette_color(rgb_color.r, rgb_color.g, rgb_color.b)
                         channel = self._get_led_mode_channel(definition_led_mode)
                         print(
-                            f"[APC]   -> ANIM: Note On ch={channel} note={pad_note} vel={velocity} (palette color for {definition_led_mode})",
+                            f"[APC]   -> ANIM: Note On ch={channel} note={pad_note} vel={velocity} (palette color for {animation_type})",
                         )
                         anim_messages.append(mido.Message("note_on", channel=channel, note=pad_note, velocity=velocity))
                         # Track that this pad is now in pulse/blink mode
-                        self._current_pad_modes[control_id] = definition_led_mode
+                        self._current_pad_modes[control_id] = animation_type
                     else:
                         # OFF: Need mode transition (solid ch, vel=0) then SysEx
                         print(
@@ -1286,11 +1313,11 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
                         print(f"[APC]   -> SYSEX: RGB({rgb_color.r},{rgb_color.g},{rgb_color.b})")
                         sysex_messages.append(self._build_pad_rgb_sysex(pad_note, rgb_color))
                         # Track that this pad is now in solid mode
-                        self._current_pad_modes[control_id] = "solid"
+                        self._current_pad_modes[control_id] = LEDAnimationType.SOLID
                 else:
                     # SOLID mode requested
                     # Check if CURRENT mode is pulse/blink - need mode transition first
-                    if current_mode in ("pulse", "blink"):
+                    if current_mode in (LEDAnimationType.PULSE, LEDAnimationType.BLINK):
                         print(
                             f"[APC]   -> MODE_TRANS: Note On ch={self.LED_CHANNEL_SOLID} note={pad_note} vel=0 (exit {current_mode})",
                         )
@@ -1300,7 +1327,7 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
                     print(f"[APC]   -> SYSEX: RGB({rgb_color.r},{rgb_color.g},{rgb_color.b})")
                     sysex_messages.append(self._build_pad_rgb_sysex(pad_note, rgb_color))
                     # Track that this pad is now in solid mode
-                    self._current_pad_modes[control_id] = "solid"
+                    self._current_pad_modes[control_id] = LEDAnimationType.SOLID
 
             elif control_id in self.FADER_CTRL_BUTTONS:
                 midi_note = self.FADER_CTRL_BUTTONS[control_id]
@@ -1385,44 +1412,49 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
         signal_type: str,
         current_state: ControlState,
         control_definition: ControlDefinition,
-    ) -> Optional[ControlState]:
+    ) -> Tuple[Optional[ControlState], bool]:
         if "pad_" in control_id:
             if control_definition.control_type == ControlType.MOMENTARY:
                 on_state = value == 127
                 color = control_definition.on_color if on_state else control_definition.off_color
                 led_mode = control_definition.on_led_mode if on_state else control_definition.off_led_mode
 
-                return ControlState(
-                    control_id=control_id,
-                    timestamp=datetime.now(),
-                    is_discovered=True,
-                    is_on=on_state,
-                    value=value,
-                    color=color,
-                    led_mode=led_mode,
+                return (
+                    ControlState(
+                        control_id=control_id,
+                        timestamp=datetime.now(),
+                        is_discovered=True,
+                        is_on=on_state,
+                        value=value,
+                        color=color,
+                        led_mode=led_mode,
+                    ),
+                    True,
                 )
             elif control_definition.control_type == ControlType.TOGGLE:
                 on_state = current_state.is_on
 
-                if on_state and value == 127:
+                if value == 127:  # Toggle on press only (not release)
                     on_state = not on_state
                     color = control_definition.on_color if on_state else control_definition.off_color
                     led_mode = control_definition.on_led_mode if on_state else control_definition.off_led_mode
+
+                    return (
+                        ControlState(
+                            control_id=control_id,
+                            timestamp=datetime.now(),
+                            is_discovered=True,
+                            is_on=on_state,
+                            value=value,
+                            color=color,
+                            led_mode=led_mode,
+                        ),
+                        True,
+                    )
                 else:
-                    color = current_state.color
-                    led_mode = current_state.led_mode
+                    return (None, False)
 
-                return ControlState(
-                    control_id=control_id,
-                    timestamp=datetime.now(),
-                    is_discovered=True,
-                    is_on=on_state,
-                    value=value,
-                    color=color,
-                    led_mode=led_mode,
-                )
-
-        return None
+        return (None, True)
 
     def get_debug_layout(self) -> DebugLayout:
         """

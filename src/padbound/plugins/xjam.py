@@ -968,7 +968,7 @@ class XjamPlugin(ControllerPlugin):
         signal_type: str,
         current_state: "ControlState",
         control_definition: "ControlDefinition",
-    ) -> Optional["ControlState"]:
+    ) -> tuple[Optional["ControlState"], bool]:
         """
         Custom state computation for Xjam.
 
@@ -997,9 +997,9 @@ class XjamPlugin(ControllerPlugin):
 
         # Only handle pads with toggle type
         if not control_id.startswith("pad_"):
-            return None
+            return (None, True)
         if control_definition.control_type != ControlType.TOGGLE:
-            return None
+            return (None, True)
 
         # Xjam reports state directly via velocity:
         # velocity > 0 means pad is ON, velocity = 0 means pad is OFF
@@ -1011,14 +1011,17 @@ class XjamPlugin(ControllerPlugin):
         # LED mode based on state (on_led_mode when ON, off_led_mode when OFF)
         led_mode = control_definition.on_led_mode if is_on else control_definition.off_led_mode
 
-        return ControlState(
-            control_id=control_id,
-            timestamp=datetime.now(),
-            is_discovered=True,
-            is_on=is_on,
-            value=value,
-            color=color,
-            led_mode=led_mode,
+        return (
+            ControlState(
+                control_id=control_id,
+                timestamp=datetime.now(),
+                is_discovered=True,
+                is_on=is_on,
+                value=value,
+                color=color,
+                led_mode=led_mode,
+            ),
+            True,
         )
 
     def translate_input(self, msg: mido.Message) -> Optional[tuple[str, int, str]]:
