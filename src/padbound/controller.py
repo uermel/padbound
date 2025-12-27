@@ -465,7 +465,9 @@ class Controller:
             # Include definition LED mode for plugins that need it (e.g., APC mini MK2)
             if "definition_led_mode" not in kwargs:
                 is_on = kwargs.get("is_on", False)
-                kwargs["definition_led_mode"] = control.definition.on_led_mode if is_on else control.definition.off_led_mode
+                kwargs["definition_led_mode"] = (
+                    control.definition.on_led_mode if is_on else control.definition.off_led_mode
+                )
             messages = self._plugin.translate_feedback(control_id, kwargs)
             feedback_delay = self._state.capabilities.feedback_message_delay
             for msg in messages:
@@ -557,36 +559,30 @@ class Controller:
 
             # Check feedback support
             if not capabilities.supports_feedback:
-                self._handle_unsupported_operation(
-                    f"Control '{control_id}' does not support feedback"
-                )
+                self._handle_unsupported_operation(f"Control '{control_id}' does not support feedback")
                 continue
 
             # Validate color
             if "color" in kwargs:
                 if not capabilities.supports_color:
-                    self._handle_unsupported_operation(
-                        f"Control '{control_id}' does not support color"
-                    )
+                    self._handle_unsupported_operation(f"Control '{control_id}' does not support color")
                     continue
                 if not self._state.validate_color(control_id, kwargs["color"]):
-                    self._handle_unsupported_operation(
-                        f"Color '{kwargs['color']}' not valid for '{control_id}'"
-                    )
+                    self._handle_unsupported_operation(f"Color '{kwargs['color']}' not valid for '{control_id}'")
                     continue
 
             # Validate value setting
             if "value" in kwargs and not capabilities.supports_value_setting:
-                self._handle_unsupported_operation(
-                    f"Control '{control_id}' does not support value setting"
-                )
+                self._handle_unsupported_operation(f"Control '{control_id}' does not support value setting")
                 continue
 
             # Add definition LED mode based on is_on state
             state_dict = dict(kwargs)
             if "definition_led_mode" not in state_dict:
                 is_on = state_dict.get("is_on", False)
-                state_dict["definition_led_mode"] = control.definition.on_led_mode if is_on else control.definition.off_led_mode
+                state_dict["definition_led_mode"] = (
+                    control.definition.on_led_mode if is_on else control.definition.off_led_mode
+                )
 
             validated_updates.append((control_id, state_dict))
 
@@ -601,10 +597,7 @@ class Controller:
         for i, msg in enumerate(result.messages):
             self._send_message(msg)
             # Use per-message delay if provided, otherwise default
-            if result.delays is not None and i < len(result.delays):
-                delay = result.delays[i]
-            else:
-                delay = default_delay
+            delay = result.delays[i] if result.delays is not None and i < len(result.delays) else default_delay
             if delay > 0:
                 time.sleep(delay)
 
@@ -953,7 +946,9 @@ class Controller:
             if control.definition.capabilities.requires_feedback:
                 # Convert ControlState to dict for translate_feedback
                 # definition_led_mode is based on is_on state (on_led_mode or off_led_mode)
-                definition_led_mode = control.definition.on_led_mode if new_state.is_on else control.definition.off_led_mode
+                definition_led_mode = (
+                    control.definition.on_led_mode if new_state.is_on else control.definition.off_led_mode
+                )
                 state_dict = {
                     "is_on": new_state.is_on,
                     "value": new_state.value,

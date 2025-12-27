@@ -21,6 +21,7 @@ class ControlType(str, Enum):
     MOMENTARY = "momentary"  # Trigger-based actions with no persistent state
     CONTINUOUS = "continuous"  # Range-based values (e.g., knobs, faders)
 
+
 class LEDAnimationType(str, Enum):
     """Three LED animation types for MIDI controllers."""
 
@@ -28,14 +29,17 @@ class LEDAnimationType(str, Enum):
     BLINK = "blink"
     PULSE = "pulse"
 
+
 class LEDMode(BaseModel):
     """LED animation type and (optional frequency in pulses per second)."""
+
     animation_type: LEDAnimationType = LEDAnimationType.SOLID
     frequency: Optional[int] = None
 
     def __hash__(self):
         """Make hashable for use in sets and as dict keys."""
         return hash((self.animation_type, self.frequency))
+
 
 class ControlCapabilities(BaseModel):
     """

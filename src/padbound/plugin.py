@@ -14,6 +14,11 @@ from typing import TYPE_CHECKING, Any, Callable, Literal, Optional, Union
 import mido
 from pydantic import BaseModel, Field
 
+from padbound.controls import (
+    BankDefinition,
+    ControlDefinition,
+)
+
 
 @dataclass
 class BatchFeedbackResult:
@@ -32,10 +37,6 @@ class BatchFeedbackResult:
     messages: list[mido.Message] = field(default_factory=list)
     delays: list[float] | None = None
 
-from padbound.controls import (
-    BankDefinition,
-    ControlDefinition,
-)
 
 if TYPE_CHECKING:
     from padbound.config import BankConfig, ControllerConfig

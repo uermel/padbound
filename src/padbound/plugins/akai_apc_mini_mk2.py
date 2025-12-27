@@ -224,9 +224,9 @@ References:
 """
 
 import colorsys
-from datetime import datetime
 import time
-from typing import Callable, Optional, TYPE_CHECKING
+from datetime import datetime
+from typing import Callable, Optional
 
 import mido
 from pydantic import BaseModel, Field
@@ -250,7 +250,6 @@ from padbound.plugin import (
 )
 from padbound.state import ControlState
 from padbound.utils import RGBColor
-
 
 logger = get_logger(__name__)
 
@@ -909,9 +908,7 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
 
         return mappings
 
-    def translate_input(
-        self, msg: mido.Message
-    ) -> Optional[tuple[str, int, str]]:
+    def translate_input(self, msg: mido.Message) -> Optional[tuple[str, int, str]]:
         """
         Translate MIDI message to control update.
 
@@ -1113,10 +1110,14 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
             # Use 'or' to handle both missing key AND None value
             color = state_dict.get("color") or "off"
             led_mode = state_dict.get("led_mode") or "solid"  # Runtime mode from set_state()
-            definition_led_mode = state_dict.get("definition_led_mode") or led_mode  # Prefer definition, fallback to runtime
+            definition_led_mode = (
+                state_dict.get("definition_led_mode") or led_mode
+            )  # Prefer definition, fallback to runtime
             is_on = state_dict.get("is_on", False)
 
-            logger.debug(f"translate_feedback: {control_id} color={color} led_mode={led_mode} definition_led_mode={definition_led_mode} is_on={is_on}")
+            logger.debug(
+                f"translate_feedback: {control_id} color={color} led_mode={led_mode} definition_led_mode={definition_led_mode} is_on={is_on}",
+            )
 
             # Parse color string to RGB
             rgb_color = APCminiMK2RGBColor.from_string(color)
@@ -1168,7 +1169,9 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
                 messages.append(sysex_msg)
                 # Track that this pad is now in solid mode
                 self._current_pad_modes[control_id] = "solid"
-                logger.debug(f"translate_feedback: Built SysEx RGB for pad_note={pad_note} rgb=({rgb_color.r},{rgb_color.g},{rgb_color.b})")
+                logger.debug(
+                    f"translate_feedback: Built SysEx RGB for pad_note={pad_note} rgb=({rgb_color.r},{rgb_color.g},{rgb_color.b})",
+                )
 
         # Handle fader control / navigation button feedback (single red LED)
         elif control_id in self.FADER_CTRL_BUTTONS:
@@ -1215,11 +1218,11 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
             BatchFeedbackResult with messages and per-message delays.
         """
         # Categorize updates by message type
-        prep_messages: list[mido.Message] = []     # Prep Note On for solid→pulse transitions
+        prep_messages: list[mido.Message] = []  # Prep Note On for solid→pulse transitions
         mode_transitions: list[mido.Message] = []  # Note On solid ch, vel=0 for pulse→solid
-        sysex_messages: list[mido.Message] = []    # SysEx RGB
-        anim_messages: list[mido.Message] = []     # Note On with palette
-        button_messages: list[mido.Message] = []   # Button feedback
+        sysex_messages: list[mido.Message] = []  # SysEx RGB
+        anim_messages: list[mido.Message] = []  # Note On with palette
+        button_messages: list[mido.Message] = []  # Button feedback
 
         for control_id, state_dict in updates:
             if control_id.startswith("pad_"):
@@ -1246,8 +1249,10 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
                 # Get the pad's CURRENT mode (from tracking) to determine if transition needed
                 current_mode = self._current_pad_modes.get(control_id, "solid")
 
-                print(f"[APC] batch: {control_id} note={pad_note} rgb=({rgb_color.r},{rgb_color.g},{rgb_color.b}) "
-                      f"led_mode={led_mode} def_led_mode={definition_led_mode} is_on={is_on} current_mode={current_mode}")
+                print(
+                    f"[APC] batch: {control_id} note={pad_note} rgb=({rgb_color.r},{rgb_color.g},{rgb_color.b}) "
+                    f"led_mode={led_mode} def_led_mode={definition_led_mode} is_on={is_on} current_mode={current_mode}",
+                )
 
                 if definition_led_mode in ("pulse", "blink"):
                     if is_on:
@@ -1256,44 +1261,44 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
                         # we need a prep message first to reset the pad - just like pulse→solid.
                         # Without this, the hardware ignores the pulse Note On.
                         if current_mode == "solid":
-                            print(f"[APC]   -> PREP: Note On ch={self.LED_CHANNEL_SOLID} note={pad_note} vel=0 (solid→pulse)")
-                            prep_messages.append(
-                                mido.Message("note_on", channel=self.LED_CHANNEL_SOLID, note=pad_note, velocity=0)
+                            print(
+                                f"[APC]   -> PREP: Note On ch={self.LED_CHANNEL_SOLID} note={pad_note} vel=0 (solid→pulse)",
                             )
-                        velocity = self._find_nearest_palette_color(
-                            rgb_color.r, rgb_color.g, rgb_color.b
-                        )
+                            prep_messages.append(
+                                mido.Message("note_on", channel=self.LED_CHANNEL_SOLID, note=pad_note, velocity=0),
+                            )
+                        velocity = self._find_nearest_palette_color(rgb_color.r, rgb_color.g, rgb_color.b)
                         channel = self._get_led_mode_channel(definition_led_mode)
-                        print(f"[APC]   -> ANIM: Note On ch={channel} note={pad_note} vel={velocity} (palette color for {definition_led_mode})")
-                        anim_messages.append(
-                            mido.Message("note_on", channel=channel, note=pad_note, velocity=velocity)
+                        print(
+                            f"[APC]   -> ANIM: Note On ch={channel} note={pad_note} vel={velocity} (palette color for {definition_led_mode})",
                         )
+                        anim_messages.append(mido.Message("note_on", channel=channel, note=pad_note, velocity=velocity))
                         # Track that this pad is now in pulse/blink mode
                         self._current_pad_modes[control_id] = definition_led_mode
                     else:
                         # OFF: Need mode transition (solid ch, vel=0) then SysEx
-                        print(f"[APC]   -> MODE_TRANS: Note On ch={self.LED_CHANNEL_SOLID} note={pad_note} vel=0 (pulse OFF)")
+                        print(
+                            f"[APC]   -> MODE_TRANS: Note On ch={self.LED_CHANNEL_SOLID} note={pad_note} vel=0 (pulse OFF)",
+                        )
                         mode_transitions.append(
-                            mido.Message("note_on", channel=self.LED_CHANNEL_SOLID, note=pad_note, velocity=0)
+                            mido.Message("note_on", channel=self.LED_CHANNEL_SOLID, note=pad_note, velocity=0),
                         )
                         print(f"[APC]   -> SYSEX: RGB({rgb_color.r},{rgb_color.g},{rgb_color.b})")
-                        sysex_messages.append(
-                            self._build_pad_rgb_sysex(pad_note, rgb_color)
-                        )
+                        sysex_messages.append(self._build_pad_rgb_sysex(pad_note, rgb_color))
                         # Track that this pad is now in solid mode
                         self._current_pad_modes[control_id] = "solid"
                 else:
                     # SOLID mode requested
                     # Check if CURRENT mode is pulse/blink - need mode transition first
                     if current_mode in ("pulse", "blink"):
-                        print(f"[APC]   -> MODE_TRANS: Note On ch={self.LED_CHANNEL_SOLID} note={pad_note} vel=0 (exit {current_mode})")
+                        print(
+                            f"[APC]   -> MODE_TRANS: Note On ch={self.LED_CHANNEL_SOLID} note={pad_note} vel=0 (exit {current_mode})",
+                        )
                         mode_transitions.append(
-                            mido.Message("note_on", channel=self.LED_CHANNEL_SOLID, note=pad_note, velocity=0)
+                            mido.Message("note_on", channel=self.LED_CHANNEL_SOLID, note=pad_note, velocity=0),
                         )
                     print(f"[APC]   -> SYSEX: RGB({rgb_color.r},{rgb_color.g},{rgb_color.b})")
-                    sysex_messages.append(
-                        self._build_pad_rgb_sysex(pad_note, rgb_color)
-                    )
+                    sysex_messages.append(self._build_pad_rgb_sysex(pad_note, rgb_color))
                     # Track that this pad is now in solid mode
                     self._current_pad_modes[control_id] = "solid"
 
@@ -1301,17 +1306,13 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
                 midi_note = self.FADER_CTRL_BUTTONS[control_id]
                 is_on = state_dict.get("is_on", False)
                 velocity = self.SINGLE_LED_ON if is_on else self.SINGLE_LED_OFF
-                button_messages.append(
-                    mido.Message("note_on", channel=0, note=midi_note, velocity=velocity)
-                )
+                button_messages.append(mido.Message("note_on", channel=0, note=midi_note, velocity=velocity))
 
             elif control_id in self.SCENE_BUTTONS:
                 midi_note = self.SCENE_BUTTONS[control_id]
                 is_on = state_dict.get("is_on", False)
                 velocity = self.SINGLE_LED_ON if is_on else self.SINGLE_LED_OFF
-                button_messages.append(
-                    mido.Message("note_on", channel=0, note=midi_note, velocity=velocity)
-                )
+                button_messages.append(mido.Message("note_on", channel=0, note=midi_note, velocity=velocity))
 
         # Build final message list with proper ordering and delays
         # MESSAGE ORDER IS CRITICAL for APC mini MK2:
@@ -1352,9 +1353,11 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
             messages.append(msg)
             delays.append(0.0)
 
-        print(f"[APC] batch SUMMARY: prep={len(prep_messages)} anim={len(anim_messages)} "
-              f"mode_trans={len(mode_transitions)} sysex={len(sysex_messages)} btn={len(button_messages)} "
-              f"total={len(messages)}")
+        print(
+            f"[APC] batch SUMMARY: prep={len(prep_messages)} anim={len(anim_messages)} "
+            f"mode_trans={len(mode_transitions)} sysex={len(sysex_messages)} btn={len(button_messages)} "
+            f"total={len(messages)}",
+        )
 
         print(messages)
         print(delays)
@@ -1376,14 +1379,13 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
         return update.to_sysex_message()
 
     def compute_control_state(
-            self,
-            control_id: str,
-            value: int,
-            signal_type: str,
-            current_state: ControlState,
-            control_definition: ControlDefinition,
+        self,
+        control_id: str,
+        value: int,
+        signal_type: str,
+        current_state: ControlState,
+        control_definition: ControlDefinition,
     ) -> Optional[ControlState]:
-
         if "pad_" in control_id:
             if control_definition.control_type == ControlType.MOMENTARY:
                 on_state = value == 127
@@ -1448,7 +1450,7 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
                         widget_type=ControlWidget.PAD,
                         row=tui_row,
                         col=col,
-                    )
+                    ),
                 )
 
         # Scene Buttons - col 8, rows 0-7 (aligned with pad rows)
@@ -1461,7 +1463,7 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
                     row=i,
                     col=8,
                     label=name.replace("_", " ").title(),
-                )
+                ),
             )
 
         # Track control buttons - row 8, cols 0-7
@@ -1474,7 +1476,7 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
                     row=8,
                     col=i,
                     label=name.title(),
-                )
+                ),
             )
 
         # Shift button - row 8, col 8
@@ -1485,7 +1487,7 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
                 row=8,
                 col=8,
                 label="Shift",
-            )
+            ),
         )
 
         # Faders 1-8 - row 9, cols 0-7
@@ -1497,7 +1499,7 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
                     row=9,
                     col=i - 1,
                     label=f"F{i}",
-                )
+                ),
             )
 
         # Master fader - row 9, col 8
@@ -1508,7 +1510,7 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
                 row=9,
                 col=8,
                 label="Master",
-            )
+            ),
         )
 
         # Single unified section with all controls
@@ -1521,6 +1523,6 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
                     controls=controls,
                     rows=10,
                     cols=9,
-                )
+                ),
             ],
         )

@@ -1068,15 +1068,10 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
 
         # Apply all updates
         for pad_num, state_dict in pad_updates.items():
-            is_on = state_dict.get("is_on", False)
+            state_dict.get("is_on", False)
             color = state_dict.get("color")
 
-            if is_on and color:
-                rgb_color = LPD8MK2RGBColor.from_string(color)
-            elif color:
-                rgb_color = LPD8MK2RGBColor.from_string(color)
-            else:
-                rgb_color = LPD8MK2RGBColor(r=0, g=0, b=0)
+            rgb_color = LPD8MK2RGBColor.from_string(color) if color else LPD8MK2RGBColor(r=0, g=0, b=0)
 
             rgb_midi = rgb_color.to_midi_range()
             rgb_values[pad_num - 1] = rgb_midi

@@ -44,13 +44,23 @@ class ControlConfig(BaseModel):
             try:
                 animation_type = LEDAnimationType(v)
                 return LEDMode(animation_type=animation_type)
-            except ValueError:
-                raise ValueError(f"led_mode must be 'solid', 'pulse', or 'blink', got '{v}'")
+            except ValueError as err:
+                raise ValueError(f"led_mode must be 'solid', 'pulse', or 'blink', got '{v}'") from err
         return v
 
     def __hash__(self):
         """Make hashable for use in dicts/sets."""
-        return hash((self.type, self.on_color, self.off_color, self.on_led_mode.animation_type, self.on_led_mode.frequency, self.off_led_mode.animation_type, self.off_led_mode.frequency))
+        return hash(
+            (
+                self.type,
+                self.on_color,
+                self.off_color,
+                self.on_led_mode.animation_type,
+                self.on_led_mode.frequency,
+                self.off_led_mode.animation_type,
+                self.off_led_mode.frequency,
+            ),
+        )
 
 
 class BankConfig(BaseModel):
