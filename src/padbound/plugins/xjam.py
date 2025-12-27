@@ -146,6 +146,7 @@ from padbound.controls import (
 )
 from padbound.logging_config import get_logger
 from padbound.plugin import (
+    BatchFeedbackResult,
     ControllerPlugin,
     MIDIMapping,
     MIDIMessageType,
@@ -485,7 +486,6 @@ class XjamPlugin(ControllerPlugin):
             supports_bank_feedback=False,  # No automatic bank feedback
             indexing_scheme="1d",  # Linear pad/knob numbering
             supports_persistent_configuration=True,  # SysEx programming supported
-            requires_initialization_handshake=False,  # We configure channels for detection
         )
 
     def get_bank_definitions(self) -> list[BankDefinition]:
@@ -942,6 +942,24 @@ class XjamPlugin(ControllerPlugin):
         """
         # Xjam does not support LED feedback from software
         return []
+
+    def translate_feedback_batch(
+        self,
+        updates: list[tuple[str, dict]],
+    ) -> BatchFeedbackResult:
+        """
+        Translate multiple control states to MIDI feedback in a batch.
+
+        The Xjam does not support LED control from software - the controller
+        manages its own LEDs. Returns empty result.
+
+        Args:
+            updates: List of (control_id, state_dict) tuples to process.
+
+        Returns:
+            Empty BatchFeedbackResult (no feedback supported).
+        """
+        return BatchFeedbackResult(messages=[])
 
     def compute_control_state(
         self,

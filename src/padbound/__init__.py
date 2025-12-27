@@ -38,7 +38,7 @@ from padbound.logging_config import (
 )
 
 # Plugin development
-from padbound.plugin import ControllerPlugin
+from padbound.plugin import BatchFeedbackResult, ControllerPlugin
 
 # Plugins
 from padbound.plugins.akai_lpd8_mk2 import AkaiLPD8MK2Plugin
@@ -70,6 +70,7 @@ __all__ = [
     "CapabilityError",
     # Plugin development
     "ControllerPlugin",
+    "BatchFeedbackResult",
     "plugin_registry",
     # Plugins
     "AkaiLPD8MK2Plugin",

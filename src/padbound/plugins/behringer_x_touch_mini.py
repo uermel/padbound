@@ -69,6 +69,7 @@ from padbound.controls import (
 )
 from padbound.logging_config import get_logger
 from padbound.plugin import (
+    BatchFeedbackResult,
     ControllerPlugin,
     FeedbackMapping,
     MIDIMapping,
@@ -758,6 +759,30 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
                 messages.append(msg)
 
         return messages
+
+    def translate_feedback_batch(
+        self,
+        updates: list[tuple[str, dict]],
+    ) -> BatchFeedbackResult:
+        """
+        Translate multiple control states to MIDI feedback in a batch.
+
+        For X-Touch Mini, there's no batch optimization possible since each control
+        requires separate Note On or CC messages. This implementation collects all
+        messages from translate_feedback() calls.
+
+        No timing delays are needed for this controller.
+
+        Args:
+            updates: List of (control_id, state_dict) tuples to process.
+
+        Returns:
+            BatchFeedbackResult with all messages, no custom delays.
+        """
+        messages = []
+        for control_id, state_dict in updates:
+            messages.extend(self.translate_feedback(control_id, state_dict))
+        return BatchFeedbackResult(messages=messages)
 
     def _get_feedback_note(self, control_id: str) -> Optional[int]:
         """
