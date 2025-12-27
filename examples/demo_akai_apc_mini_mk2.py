@@ -92,7 +92,7 @@ def create_example_config() -> ControllerConfig:
         "rgb(32, 0, 64)",
     ]
     for col, (on_color, off_color) in enumerate(zip(rainbow_on, rainbow_off)):
-        controls[f"pad_0_{col}"] = ControlConfig(type=ControlType.TOGGLE, color=on_color, off_color=off_color)
+        controls[f"pad_0_{col}"] = ControlConfig(type=ControlType.TOGGLE, on_color=on_color, off_color=off_color)
 
     # Row 1: Warm colors with dim off
     warm_on = ["red", "#FF4400", "orange", "#FFAA00", "yellow", "orange", "pink", "red"]
@@ -107,14 +107,14 @@ def create_example_config() -> ControllerConfig:
         "rgb(64, 0, 0)",
     ]
     for col, (on_color, off_color) in enumerate(zip(warm_on, warm_off)):
-        controls[f"pad_1_{col}"] = ControlConfig(type=ControlType.TOGGLE, color=on_color, off_color=off_color)
+        controls[f"pad_1_{col}"] = ControlConfig(type=ControlType.TOGGLE, on_color=on_color, off_color=off_color)
 
     # Row 2: Cool colors (bright on, black off)
     cool = ["cyan", "blue", "#4444FF", "purple", "magenta", "blue", "cyan", "green"]
     for col, color in enumerate(cool):
         controls[f"pad_2_{col}"] = ControlConfig(
             type=ControlType.TOGGLE,
-            color=color,
+            on_color=color,
             off_color="black",  # Completely off when not pressed
         )
 
@@ -131,7 +131,7 @@ def create_example_config() -> ControllerConfig:
         "rgb(48, 0, 0)",
     ]
     for col, (on_color, off_color) in enumerate(zip(earth_on, earth_off)):
-        controls[f"pad_3_{col}"] = ControlConfig(type=ControlType.TOGGLE, color=on_color, off_color=off_color)
+        controls[f"pad_3_{col}"] = ControlConfig(type=ControlType.TOGGLE, on_color=on_color, off_color=off_color)
 
     # Row 4: Bright colors - MOMENTARY mode (lights while pressed, off when released)
     bright_on = ["pink", "orange", "yellow", "lime", "cyan", "blue", "purple", "magenta"]
@@ -148,7 +148,7 @@ def create_example_config() -> ControllerConfig:
     for col, (on_color, off_color) in enumerate(zip(bright_on, bright_off)):
         controls[f"pad_4_{col}"] = ControlConfig(
             type=ControlType.MOMENTARY,
-            color=on_color,
+            on_color=on_color,
             off_color=off_color,  # Lights only while pressed
         )
 
@@ -174,7 +174,7 @@ def create_example_config() -> ControllerConfig:
         "rgb(128, 128, 128)",
     ]
     for col, (on_color, off_color) in enumerate(zip(mono_on, mono_off)):
-        controls[f"pad_5_{col}"] = ControlConfig(type=ControlType.TOGGLE, color=on_color, off_color=off_color)
+        controls[f"pad_5_{col}"] = ControlConfig(type=ControlType.TOGGLE, on_color=on_color, off_color=off_color)
 
     # Row 6: Primary colors with PULSE mode (pulsing animation when ON)
     # Note: Pulse mode uses 128-color palette, so colors are approximated
@@ -182,9 +182,9 @@ def create_example_config() -> ControllerConfig:
     for col, color in enumerate(primary):
         controls[f"pad_6_{col}"] = ControlConfig(
             type=ControlType.TOGGLE,
-            color=color,
+            on_color=color,
             off_color="black",
-            led_mode="pulse",  # Pulsing animation when ON
+            on_led_mode="pulse",  # Pulsing animation when ON
         )
 
     # Row 7 (top): Purple/magenta gradient with BLINK mode (blinking when ON)
@@ -203,9 +203,9 @@ def create_example_config() -> ControllerConfig:
     for col, (on_color, off_color) in enumerate(zip(purple_on, purple_off)):
         controls[f"pad_7_{col}"] = ControlConfig(
             type=ControlType.TOGGLE,
-            color=on_color,
+            on_color=on_color,
             off_color=off_color,
-            led_mode="blink",  # Blinking animation when ON
+            on_led_mode="blink",  # Blinking animation when ON
         )
 
     config = ControllerConfig(controls=controls)
@@ -286,7 +286,7 @@ def main():
     # Create controller instance
     print("\n2. Creating controller instance...")
     plugin = AkaiAPCminiMK2Plugin()
-    controller = Controller(plugin=plugin, config=config)
+    controller = Controller(plugin=plugin, config=config, debug_server=True)
     print(f"   ✓ Controller created: {plugin.name}")
 
     # Register callbacks
@@ -321,6 +321,9 @@ def main():
     try:
         controller.connect()
         print("   ✓ Connected successfully!")
+        if controller.debug_url:
+            print(f"   ✓ Debug server running at {controller.debug_url}")
+            print(f"     Run: padbound-debug --url {controller.debug_url}")
     except IOError as e:
         print(f"   ✗ Failed to connect: {e}")
         print("\nMake sure your APC mini MK2 is connected via USB.")

@@ -128,6 +128,8 @@ from padbound.controls import (
     ControlState,
     ControlType,
     ControlTypeModes,
+    LEDAnimationType,
+    LEDMode,
 )
 from padbound.logging_config import get_logger
 from padbound.plugin import (
@@ -323,7 +325,11 @@ class PreSonusAtomPlugin(ControllerPlugin):
                         supports_led=True,
                         supports_color=True,
                         color_mode="rgb",
-                        supported_led_modes=["solid", "pulse", "blink"],
+                        supported_led_modes=[
+                            LEDMode(animation_type=LEDAnimationType.SOLID),
+                            LEDMode(animation_type=LEDAnimationType.PULSE),
+                            LEDMode(animation_type=LEDAnimationType.BLINK),
+                        ],
                         requires_discovery=False,
                     ),
                     display_name=f"Pad {pad_num}",

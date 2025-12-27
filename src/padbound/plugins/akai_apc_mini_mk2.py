@@ -224,8 +224,9 @@ References:
 """
 
 import colorsys
+from datetime import datetime
 import time
-from typing import Callable, Optional
+from typing import Callable, Optional, TYPE_CHECKING
 
 import mido
 from pydantic import BaseModel, Field
@@ -236,7 +237,10 @@ from padbound.controls import (
     ControllerCapabilities,
     ControlType,
     ControlTypeModes,
+    LEDAnimationType,
+    LEDMode,
 )
+from padbound.debug.layout import ControlPlacement, ControlWidget, DebugLayout, LayoutSection
 from padbound.logging_config import get_logger
 from padbound.plugin import (
     BatchFeedbackResult,
@@ -244,7 +248,9 @@ from padbound.plugin import (
     MIDIMapping,
     MIDIMessageType,
 )
+from padbound.state import ControlState
 from padbound.utils import RGBColor
+
 
 logger = get_logger(__name__)
 
@@ -711,7 +717,11 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
                             supports_led=True,
                             supports_color=True,
                             color_mode="rgb",  # True RGB via SysEx (solid mode)
-                            supported_led_modes=["solid", "pulse", "blink"],  # Pulse/blink use palette
+                            supported_led_modes=[
+                                LEDMode(animation_type=LEDAnimationType.SOLID),
+                                LEDMode(animation_type=LEDAnimationType.PULSE),
+                                LEDMode(animation_type=LEDAnimationType.BLINK),
+                            ],  # Pulse/blink use palette
                             requires_discovery=False,  # Pads report state immediately
                         ),
                         display_name=f"Pad {row},{col}",
@@ -921,10 +931,6 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
 
         control_id, value, signal_type = result
 
-        # Filter NOTE_OFF for pads - toggle should only fire on press, not release
-        if control_id.startswith("pad_") and msg.type == "note_off":
-            return None
-
         # Also filter NOTE_ON with velocity=0 (some controllers send this instead of NOTE_OFF)
         if control_id.startswith("pad_") and msg.type == "note_on" and msg.velocity == 0:
             return None
@@ -947,7 +953,10 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
             receive_message: Function to receive MIDI messages with timeout
 
         Returns:
-            Dictionary of discovered control values (fader_id -> position)
+            Dictionary of discovered control values:
+            - Faders: actual positions from SysEx intro response
+            - Pads: 0 (OFF state, cleared by intro message)
+            - Buttons: 0 (OFF state, LEDs cleared during init)
         """
         logger.info("Initializing AKAI APC mini MK2")
 
@@ -991,6 +1000,20 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
         # Reset tracking state
         self._current_pad_colors = {}
         self._current_pad_modes = {}
+
+        # Mark all pads as discovered with initial OFF state (value=0)
+        # We know their state because the intro message clears all LEDs
+        for row in range(self.PAD_ROWS):
+            for col in range(self.PAD_COLS):
+                control_id = f"pad_{row}_{col}"
+                discovered_values[control_id] = 0
+
+        # Mark all buttons as discovered with initial OFF state
+        for btn_name in self.FADER_CTRL_BUTTONS:
+            discovered_values[btn_name] = 0
+        for btn_name in self.SCENE_BUTTONS:
+            discovered_values[btn_name] = 0
+        discovered_values["shift"] = 0
 
         logger.info("APC mini MK2 initialization complete")
 
@@ -1351,3 +1374,153 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
         """
         update = APCminiMK2PadRGBUpdate(start_pad=pad_note, end_pad=pad_note, color=color)
         return update.to_sysex_message()
+
+    def compute_control_state(
+            self,
+            control_id: str,
+            value: int,
+            signal_type: str,
+            current_state: ControlState,
+            control_definition: ControlDefinition,
+    ) -> Optional[ControlState]:
+
+        if "pad_" in control_id:
+            if control_definition.control_type == ControlType.MOMENTARY:
+                on_state = value == 127
+                color = control_definition.on_color if on_state else control_definition.off_color
+                led_mode = control_definition.on_led_mode if on_state else control_definition.off_led_mode
+
+                return ControlState(
+                    control_id=control_id,
+                    timestamp=datetime.now(),
+                    is_discovered=True,
+                    is_on=on_state,
+                    value=value,
+                    color=color,
+                    led_mode=led_mode,
+                )
+            elif control_definition.control_type == ControlType.TOGGLE:
+                on_state = current_state.is_on
+
+                if on_state and value == 127:
+                    on_state = not on_state
+                    color = control_definition.on_color if on_state else control_definition.off_color
+                    led_mode = control_definition.on_led_mode if on_state else control_definition.off_led_mode
+                else:
+                    color = current_state.color
+                    led_mode = current_state.led_mode
+
+                return ControlState(
+                    control_id=control_id,
+                    timestamp=datetime.now(),
+                    is_discovered=True,
+                    is_on=on_state,
+                    value=value,
+                    color=color,
+                    led_mode=led_mode,
+                )
+
+        return None
+
+    def get_debug_layout(self) -> DebugLayout:
+        """
+        Define TUI layout matching physical APC mini MK2 layout.
+
+        Physical layout (9 cols x 10 rows unified grid):
+        - Rows 0-7, Cols 0-7: 8x8 pad grid (physical row 7 at TUI row 0)
+        - Rows 0-7, Col 8: Scene buttons (clip, solo, mute, rec, select, drum, note, stop_all)
+        - Row 8, Cols 0-7: Track control buttons (volume, pan, send, device, up, down, left, right)
+        - Row 8, Col 8: Shift button
+        - Row 9, Cols 0-7: Faders 1-8
+        - Row 9, Col 8: Master fader
+        """
+        controls = []
+
+        # Pad Grid (8x8) - rows 0-7, cols 0-7
+        # Physical: row 0 = bottom, row 7 = top
+        # TUI: row 0 = top, so invert
+        for tui_row in range(8):
+            physical_row = 7 - tui_row
+            for col in range(8):
+                controls.append(
+                    ControlPlacement(
+                        control_id=f"pad_{physical_row}_{col}",
+                        widget_type=ControlWidget.PAD,
+                        row=tui_row,
+                        col=col,
+                    )
+                )
+
+        # Scene Buttons - col 8, rows 0-7 (aligned with pad rows)
+        scene_button_names = ["clip", "solo", "mute", "rec", "select", "drum", "note", "stop_all"]
+        for i, name in enumerate(scene_button_names):
+            controls.append(
+                ControlPlacement(
+                    control_id=name,
+                    widget_type=ControlWidget.BUTTON,
+                    row=i,
+                    col=8,
+                    label=name.replace("_", " ").title(),
+                )
+            )
+
+        # Track control buttons - row 8, cols 0-7
+        track_button_names = ["volume", "pan", "send", "device", "up", "down", "left", "right"]
+        for i, name in enumerate(track_button_names):
+            controls.append(
+                ControlPlacement(
+                    control_id=name,
+                    widget_type=ControlWidget.BUTTON,
+                    row=8,
+                    col=i,
+                    label=name.title(),
+                )
+            )
+
+        # Shift button - row 8, col 8
+        controls.append(
+            ControlPlacement(
+                control_id="shift",
+                widget_type=ControlWidget.BUTTON,
+                row=8,
+                col=8,
+                label="Shift",
+            )
+        )
+
+        # Faders 1-8 - row 9, cols 0-7
+        for i in range(1, 9):
+            controls.append(
+                ControlPlacement(
+                    control_id=f"fader_{i}",
+                    widget_type=ControlWidget.FADER,
+                    row=9,
+                    col=i - 1,
+                    label=f"F{i}",
+                )
+            )
+
+        # Master fader - row 9, col 8
+        controls.append(
+            ControlPlacement(
+                control_id="fader_9",
+                widget_type=ControlWidget.FADER,
+                row=9,
+                col=8,
+                label="Master",
+            )
+        )
+
+        # Single unified section with all controls
+        return DebugLayout(
+            plugin_name=self.name,
+            description="AKAI APC mini MK2 with 8x8 RGB pad grid, 9 faders, and control buttons",
+            sections=[
+                LayoutSection(
+                    name="APC mini MK2",
+                    controls=controls,
+                    rows=10,
+                    cols=9,
+                )
+            ],
+        )

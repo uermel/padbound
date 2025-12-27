@@ -20,6 +20,7 @@ from padbound.controls import (
     ControllerCapabilities,
     ControlState,
     ControlType,
+    LEDAnimationType,
     MomentaryControl,
     ToggleControl,
 )
@@ -28,6 +29,15 @@ from padbound.midi_io import MIDIInterface
 from padbound.plugin import ControllerPlugin
 from padbound.registry import plugin_registry
 from padbound.state import ControllerState
+
+# Import debug server conditionally to avoid loading when not needed
+try:
+    from padbound.debug.server import StateBroadcaster
+
+    HAS_DEBUG_SERVER = True
+except ImportError:
+    HAS_DEBUG_SERVER = False
+    StateBroadcaster = None  # type: ignore
 
 logger = get_logger(__name__)
 
@@ -51,6 +61,9 @@ class Controller:
         config: Optional[ControllerConfig] = None,
         strict_mode: bool = True,
         auto_connect: bool = False,
+        debug_server: bool = False,
+        debug_host: str = "127.0.0.1",
+        debug_port: int = 8765,
     ):
         """
         Initialize controller.
@@ -63,6 +76,9 @@ class Controller:
             strict_mode: If True, raise CapabilityError for unsupported operations.
                         If False, log warnings instead.
             auto_connect: If True, automatically connect on initialization
+            debug_server: If True, start a WebSocket server for state debugging
+            debug_host: Host for the debug WebSocket server
+            debug_port: Port for the debug WebSocket server
         """
         self._plugin: Optional[ControllerPlugin] = None
         self._strict_mode = strict_mode
@@ -72,6 +88,12 @@ class Controller:
         self._state: Optional[ControllerState] = None
         self._callbacks: CallbackManager = CallbackManager()
         self._midi: Optional[MIDIInterface] = None
+
+        # Debug server (optional)
+        self._debug_server_enabled = debug_server
+        self._debug_host = debug_host
+        self._debug_port = debug_port
+        self._broadcaster: Optional["StateBroadcaster"] = None
 
         # Configuration system
         self._controller_config = config
@@ -113,6 +135,13 @@ class Controller:
     def plugin(self) -> Optional[ControllerPlugin]:
         """Get active plugin."""
         return self._plugin
+
+    @property
+    def debug_url(self) -> Optional[str]:
+        """Get WebSocket URL for debug client connection."""
+        if self._broadcaster and self._broadcaster.is_running:
+            return f"ws://{self._broadcaster.host}:{self._broadcaster.port}"
+        return None
 
     def connect(self, input_port: Optional[str] = None, output_port: Optional[str] = None) -> None:
         """
@@ -201,8 +230,8 @@ class Controller:
                     "value": 0,
                     "color": control.definition.off_color,
                     "normalized_value": None,
-                    "led_mode": None,  # Runtime mode (None when OFF)
-                    "definition_led_mode": control.definition.led_mode,  # Configured mode
+                    "led_mode": control.definition.off_led_mode,  # OFF state LED mode
+                    "definition_led_mode": control.definition.off_led_mode,  # Configured mode for OFF state
                 }
                 messages = self._plugin.translate_feedback(control.definition.control_id, state_dict)
                 for msg in messages:
@@ -214,12 +243,40 @@ class Controller:
         # Set connected flag
         self._connected = True
 
+        # Start debug server if enabled
+        if self._debug_server_enabled and HAS_DEBUG_SERVER and StateBroadcaster is not None:
+            self._broadcaster = StateBroadcaster(host=self._debug_host, port=self._debug_port)
+            self._broadcaster.start()
+
+            # Cache full state for new client connections
+            states = self._state.get_all_states()
+            definitions = self._state.get_all_definitions()  # Get definitions with resolved colors
+            layout = self._plugin.get_debug_layout()
+            self._broadcaster.set_full_state(
+                plugin_name=self._plugin.name,
+                layout=layout,
+                states=states,
+                definitions=definitions,
+            )
+
+            # Register callback for state broadcasting
+            self._callbacks.register_global(self._on_state_change_for_debug)
+
+            logger.info(f"Debug server started at ws://{self._debug_host}:{self._debug_port}")
+
         logger.info(f"Connected to {self._plugin.name} (input: {input_port}, output: {output_port})")
 
     def disconnect(self) -> None:
         """Disconnect from controller and cleanup."""
         if not self._connected:
             return
+
+        # Stop debug server
+        if self._broadcaster:
+            self._callbacks.unregister_global(self._on_state_change_for_debug)
+            self._broadcaster.stop()
+            self._broadcaster = None
+            logger.info("Debug server stopped")
 
         # Call plugin shutdown
         if self._plugin and self._midi:
@@ -407,7 +464,8 @@ class Controller:
         if self._plugin:
             # Include definition LED mode for plugins that need it (e.g., APC mini MK2)
             if "definition_led_mode" not in kwargs:
-                kwargs["definition_led_mode"] = control.definition.led_mode
+                is_on = kwargs.get("is_on", False)
+                kwargs["definition_led_mode"] = control.definition.on_led_mode if is_on else control.definition.off_led_mode
             messages = self._plugin.translate_feedback(control_id, kwargs)
             feedback_delay = self._state.capabilities.feedback_message_delay
             for msg in messages:
@@ -524,10 +582,11 @@ class Controller:
                 )
                 continue
 
-            # Add definition LED mode
+            # Add definition LED mode based on is_on state
             state_dict = dict(kwargs)
             if "definition_led_mode" not in state_dict:
-                state_dict["definition_led_mode"] = control.definition.led_mode
+                is_on = state_dict.get("is_on", False)
+                state_dict["definition_led_mode"] = control.definition.on_led_mode if is_on else control.definition.off_led_mode
 
             validated_updates.append((control_id, state_dict))
 
@@ -711,7 +770,7 @@ class Controller:
         """
         Create Control instance from definition.
 
-        Uses configuration resolver to determine actual control type and colors.
+        Uses configuration resolver to determine actual control type, colors, and LED modes.
 
         Args:
             definition: Control definition
@@ -719,37 +778,48 @@ class Controller:
         Returns:
             Control instance
         """
-        # Resolve type, colors, and LED mode from config
-        actual_type, on_color, off_color, led_mode = self._config_resolver.resolve_config(
+        # Resolve type, colors, and LED modes from config
+        actual_type, on_color, off_color, on_led_mode, off_led_mode = self._config_resolver.resolve_config(
             definition.control_id,
             definition,
         )
 
-        # Validate led_mode against capabilities
-        if led_mode is not None:
-            supported_modes = definition.capabilities.supported_led_modes
-            # If supported_led_modes is None, only "solid" is implicitly supported
-            if supported_modes is None:
-                if led_mode != "solid":
-                    self._handle_unsupported_operation(
-                        f"Control '{definition.control_id}' does not support LED mode "
-                        f"'{led_mode}'. Only 'solid' is supported.",
-                    )
-                    led_mode = None  # Fall back to default
-            elif led_mode not in supported_modes:
-                self._handle_unsupported_operation(
-                    f"Control '{definition.control_id}' does not support LED mode "
-                    f"'{led_mode}'. Supported modes: {supported_modes}",
-                )
-                led_mode = None  # Fall back to default
+        # Validate LED modes against capabilities
+        supported_modes = definition.capabilities.supported_led_modes
+        for mode_name, mode_value in [("on_led_mode", on_led_mode), ("off_led_mode", off_led_mode)]:
+            if mode_value is not None:
+                # If supported_led_modes is None, only "solid" is implicitly supported
+                if supported_modes is None:
+                    if mode_value.animation_type != LEDAnimationType.SOLID:
+                        self._handle_unsupported_operation(
+                            f"Control '{definition.control_id}' does not support LED mode "
+                            f"'{mode_value.animation_type.value}' for {mode_name}. Only 'solid' is supported.",
+                        )
+                        if mode_name == "on_led_mode":
+                            on_led_mode = None
+                        else:
+                            off_led_mode = None
+                else:
+                    # Compare LEDMode.animation_type to supported modes
+                    supported_animation_types = {mode.animation_type for mode in supported_modes}
+                    if mode_value.animation_type not in supported_animation_types:
+                        self._handle_unsupported_operation(
+                            f"Control '{definition.control_id}' does not support LED mode "
+                            f"'{mode_value.animation_type.value}' for {mode_name}. Supported modes: {[m.value for m in supported_animation_types]}",
+                        )
+                        if mode_name == "on_led_mode":
+                            on_led_mode = None
+                        else:
+                            off_led_mode = None
 
-        # Create control with resolved type, colors, and LED mode
+        # Create control with resolved type, colors, and LED modes
         resolved_definition = definition.model_copy(
             update={
                 "control_type": actual_type,
                 "on_color": on_color,
                 "off_color": off_color,
-                "led_mode": led_mode,
+                "on_led_mode": on_led_mode,
+                "off_led_mode": off_led_mode,
             },
         )
 
@@ -882,13 +952,15 @@ class Controller:
             )
             if control.definition.capabilities.requires_feedback:
                 # Convert ControlState to dict for translate_feedback
+                # definition_led_mode is based on is_on state (on_led_mode or off_led_mode)
+                definition_led_mode = control.definition.on_led_mode if new_state.is_on else control.definition.off_led_mode
                 state_dict = {
                     "is_on": new_state.is_on,
                     "value": new_state.value,
                     "color": new_state.color,
                     "normalized_value": new_state.normalized_value,
                     "led_mode": new_state.led_mode,
-                    "definition_led_mode": control.definition.led_mode,  # Configured mode
+                    "definition_led_mode": definition_led_mode,
                 }
                 messages = self._plugin.translate_feedback(control_id, state_dict)
                 feedback_delay = self._state.capabilities.feedback_message_delay
@@ -900,3 +972,14 @@ class Controller:
 
         except ValueError as e:
             logger.error(f"Error updating state: {e}")
+
+    def _on_state_change_for_debug(self, control_id: str, state: ControlState) -> None:
+        """
+        Callback to broadcast state changes to debug clients.
+
+        Args:
+            control_id: ID of the control that changed
+            state: New state of the control
+        """
+        if self._broadcaster:
+            self._broadcaster.broadcast_state_change(control_id, state)

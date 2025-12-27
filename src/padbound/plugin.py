@@ -40,6 +40,7 @@ from padbound.controls import (
 if TYPE_CHECKING:
     from padbound.config import BankConfig, ControllerConfig
     from padbound.controls import ControllerCapabilities, ControlState
+    from padbound.debug.layout import DebugLayout
 
 
 class MIDIMessageType(str, Enum):
@@ -476,6 +477,20 @@ class ControllerPlugin(ABC):
             List of banks (empty list if no banks)
         """
         return []
+
+    def get_debug_layout(self) -> Optional["DebugLayout"]:
+        """
+        Get TUI layout definition for the debug visualization.
+
+        Override this method to provide a custom layout for the state
+        debug TUI client. The layout defines how controls are visually
+        arranged to match the physical controller.
+
+        Returns:
+            DebugLayout with sections and control placements, or None
+            for a default linear layout.
+        """
+        return None
 
     def get_bank_mappings(self) -> list[BankMapping]:
         """

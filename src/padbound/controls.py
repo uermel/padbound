@@ -21,6 +21,21 @@ class ControlType(str, Enum):
     MOMENTARY = "momentary"  # Trigger-based actions with no persistent state
     CONTINUOUS = "continuous"  # Range-based values (e.g., knobs, faders)
 
+class LEDAnimationType(str, Enum):
+    """Three LED animation types for MIDI controllers."""
+
+    SOLID = "solid"
+    BLINK = "blink"
+    PULSE = "pulse"
+
+class LEDMode(BaseModel):
+    """LED animation type and (optional frequency in pulses per second)."""
+    animation_type: LEDAnimationType = LEDAnimationType.SOLID
+    frequency: Optional[int] = None
+
+    def __hash__(self):
+        """Make hashable for use in sets and as dict keys."""
+        return hash((self.animation_type, self.frequency))
 
 class ControlCapabilities(BaseModel):
     """
@@ -47,8 +62,8 @@ class ControlCapabilities(BaseModel):
 
     # LED animation modes supported by hardware
     # None = only solid supported (most controllers)
-    # ["solid", "pulse", "blink"] = full animation support (e.g., PreSonus Atom)
-    supported_led_modes: Optional[list[str]] = None
+    # [LEDMode(...), ...] = full animation support (e.g. PreSonus Atom, APC mini)
+    supported_led_modes: Optional[list[LEDMode]] = None
 
     # For rare motorized/value-setting controls
     supports_value_setting: bool = False
@@ -157,7 +172,8 @@ class ControlDefinition(BaseModel):
     off_color: Optional[str] = None  # Color when control is OFF/inactive
 
     # LED animation mode (resolved from user config)
-    led_mode: Optional[str] = None  # "solid", "pulse", "blink"
+    on_led_mode: Optional[LEDMode] = None
+    off_led_mode: Optional[LEDMode] = None
 
     @model_validator(mode="after")
     def validate_type_modes_consistency(self):
@@ -190,7 +206,7 @@ class ControlState(BaseModel):
     normalized_value: Optional[float] = None  # 0.0-1.0
     is_on: Optional[bool] = None  # For toggles
     color: Optional[str] = None
-    led_mode: Optional[str] = None  # LED animation mode when ON
+    led_mode: Optional[LEDMode] = None  # LED animation mode when ON
 
     model_config = {"frozen": True}  # Immutability
 
@@ -314,8 +330,8 @@ class ToggleControl(Control):
         # Set color based on new state
         color = self._definition.on_color if new_is_on else self._definition.off_color
 
-        # LED mode only applies when ON
-        led_mode = self._definition.led_mode if new_is_on else None
+        # LED mode based on state (on_led_mode when ON, off_led_mode when OFF)
+        led_mode = self._definition.on_led_mode if new_is_on else self._definition.off_led_mode
 
         return ControlState(
             control_id=self._definition.control_id,
@@ -362,6 +378,7 @@ class MomentaryControl(Control):
         # Only trigger on press (velocity > 0)
         is_triggered = value > 0
         color = self._definition.on_color if is_triggered else self._definition.off_color
+        led_mode = self._definition.on_led_mode if is_triggered else self._definition.off_led_mode
 
         return ControlState(
             control_id=self._definition.control_id,
@@ -369,6 +386,7 @@ class MomentaryControl(Control):
             value=value,
             is_on=is_triggered,  # Treat trigger as momentary "on"
             color=color,
+            led_mode=led_mode,
         )
 
 

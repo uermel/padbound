@@ -690,8 +690,8 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
             # Mark for deferred feedback (will be sent on Note Off)
             self._pending_feedback[control_id] = new_is_on
 
-            # LED mode only applies when ON
-            led_mode = control_definition.led_mode if new_is_on else None
+            # LED mode based on state (on_led_mode when ON, off_led_mode when OFF)
+            led_mode = control_definition.on_led_mode if new_is_on else control_definition.off_led_mode
 
             # Return new state (callback will fire once here)
             # NOTE: control_id is REQUIRED by ControlState

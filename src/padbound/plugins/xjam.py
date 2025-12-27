@@ -993,7 +993,7 @@ class XjamPlugin(ControllerPlugin):
         """
         from datetime import datetime
 
-        from ..controls import ControlState, ControlType
+        from padbound.controls import ControlState, ControlType
 
         # Only handle pads with toggle type
         if not control_id.startswith("pad_"):
@@ -1008,8 +1008,8 @@ class XjamPlugin(ControllerPlugin):
         # Determine color based on state
         color = control_definition.on_color if is_on else control_definition.off_color
 
-        # LED mode only applies when ON
-        led_mode = control_definition.led_mode if is_on else None
+        # LED mode based on state (on_led_mode when ON, off_led_mode when OFF)
+        led_mode = control_definition.on_led_mode if is_on else control_definition.off_led_mode
 
         return ControlState(
             control_id=control_id,

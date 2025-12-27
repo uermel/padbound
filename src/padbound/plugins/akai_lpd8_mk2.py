@@ -1132,9 +1132,9 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
             # Extract colors from config if available
             if bank_config and bank_config.controls:
                 control_config = bank_config.controls.get(pad_id)
-                if control_config and control_config.color:
+                if control_config and control_config.on_color:
                     # Parse ON color from config
-                    on_color = LPD8MK2RGBColor.from_string(control_config.color)
+                    on_color = LPD8MK2RGBColor.from_string(control_config.on_color)
 
                     # OFF color: use dimmed version of ON color (25% brightness)
                     off_color = LPD8MK2RGBColor(r=on_color.r // 4, g=on_color.g // 4, b=on_color.b // 4)
