@@ -10,7 +10,7 @@ from typing import Optional
 
 from pydantic import BaseModel, field_validator, model_validator
 
-from padbound.controls import CapabilityError, ControlDefinition, ControlType
+from padbound.controls import CapabilityError, ControlDefinition, ControlType, LEDAnimationType, LEDMode
 from padbound.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -27,25 +27,40 @@ class ControlConfig(BaseModel):
     Configuration for a single control.
 
     Specifies control type and optional colors for visual feedback.
-    Supports separate colors for ON and OFF states.
+    Supports separate colors and LED modes for ON and OFF states.
     """
 
     type: ControlType
-    color: Optional[str] = None  # ON state color: Named color, hex (#FF0000), or rgb(r,g,b)
+    on_color: Optional[str] = None  # ON state color: Named color, hex (#FF0000), or rgb(r,g,b)
     off_color: Optional[str] = None  # OFF state color (defaults to black if not specified)
-    led_mode: Optional[str] = None  # LED animation: "solid", "pulse", "blink" (default: solid)
+    on_led_mode: LEDMode = LEDMode(animation_type=LEDAnimationType.SOLID)
+    off_led_mode: LEDMode = LEDMode(animation_type=LEDAnimationType.SOLID)
 
-    @field_validator("led_mode")
+    @field_validator("on_led_mode", "off_led_mode", mode="before")
     @classmethod
-    def validate_led_mode(cls, v):
-        """Validate led_mode is one of the supported values."""
-        if v is not None and v not in ("solid", "pulse", "blink"):
-            raise ValueError(f"led_mode must be 'solid', 'pulse', or 'blink', got '{v}'")
+    def convert_led_mode(cls, v):
+        """Convert string to LEDMode if needed."""
+        if isinstance(v, str):
+            try:
+                animation_type = LEDAnimationType(v)
+                return LEDMode(animation_type=animation_type)
+            except ValueError as err:
+                raise ValueError(f"led_mode must be 'solid', 'pulse', or 'blink', got '{v}'") from err
         return v
 
     def __hash__(self):
         """Make hashable for use in dicts/sets."""
-        return hash((self.type, self.color, self.off_color, self.led_mode))
+        return hash(
+            (
+                self.type,
+                self.on_color,
+                self.off_color,
+                self.on_led_mode.animation_type,
+                self.on_led_mode.frequency,
+                self.off_led_mode.animation_type,
+                self.off_led_mode.frequency,
+            ),
+        )
 
 
 class BankConfig(BaseModel):
@@ -161,16 +176,16 @@ class ControlConfigResolver:
         self,
         control_id: str,
         definition: ControlDefinition,
-    ) -> tuple[ControlType, Optional[str], Optional[str], Optional[str]]:
+    ) -> tuple[ControlType, Optional[str], Optional[str], Optional[str], Optional[str]]:
         """
-        Resolve control type and colors for a control.
+        Resolve control type, colors, and LED modes for a control.
 
         Args:
             control_id: Full control identifier (e.g., "pad_1@bank_1")
             definition: Plugin's control definition
 
         Returns:
-            (resolved_type, on_color, off_color, led_mode)
+            (resolved_type, on_color, off_color, on_led_mode, off_led_mode)
 
         Raises:
             CapabilityError: If requested type not supported by control
@@ -217,22 +232,24 @@ class ControlConfigResolver:
                     if control_config:
                         break
 
-        # Extract type, colors, and LED mode
+        # Extract type, colors, and LED modes
         if control_config:
             resolved_type = control_config.type
-            on_color = control_config.color
+            on_color = control_config.on_color
             off_color = control_config.off_color
-            led_mode = control_config.led_mode
+            on_led_mode = control_config.on_led_mode
+            off_led_mode = control_config.off_led_mode
             self._validate_supported(control_id, resolved_type, definition)
         else:
             # Fall back to plugin default
             resolved_type = definition.control_type
             on_color = None
             off_color = None
-            led_mode = None
+            on_led_mode = None
+            off_led_mode = None
             logger.debug(f"Control '{control_id}': using plugin default")
 
-        return (resolved_type, on_color, off_color, led_mode)
+        return (resolved_type, on_color, off_color, on_led_mode, off_led_mode)
 
     def _parse_control_id(self, control_id: str) -> tuple[str, Optional[str]]:
         """

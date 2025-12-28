@@ -20,6 +20,7 @@ from padbound.controls import (
     ControllerCapabilities,
     ControlState,
     ControlType,
+    LEDAnimationType,
     MomentaryControl,
     ToggleControl,
 )
@@ -28,6 +29,15 @@ from padbound.midi_io import MIDIInterface
 from padbound.plugin import ControllerPlugin
 from padbound.registry import plugin_registry
 from padbound.state import ControllerState
+
+# Import debug server conditionally to avoid loading when not needed
+try:
+    from padbound.debug.server import StateBroadcaster
+
+    HAS_DEBUG_SERVER = True
+except ImportError:
+    HAS_DEBUG_SERVER = False
+    StateBroadcaster = None  # type: ignore
 
 logger = get_logger(__name__)
 
@@ -51,6 +61,9 @@ class Controller:
         config: Optional[ControllerConfig] = None,
         strict_mode: bool = True,
         auto_connect: bool = False,
+        debug_server: bool = False,
+        debug_host: str = "127.0.0.1",
+        debug_port: int = 8765,
     ):
         """
         Initialize controller.
@@ -63,6 +76,9 @@ class Controller:
             strict_mode: If True, raise CapabilityError for unsupported operations.
                         If False, log warnings instead.
             auto_connect: If True, automatically connect on initialization
+            debug_server: If True, start a WebSocket server for state debugging
+            debug_host: Host for the debug WebSocket server
+            debug_port: Port for the debug WebSocket server
         """
         self._plugin: Optional[ControllerPlugin] = None
         self._strict_mode = strict_mode
@@ -73,10 +89,11 @@ class Controller:
         self._callbacks: CallbackManager = CallbackManager()
         self._midi: Optional[MIDIInterface] = None
 
-        # Initialization handshake tracking
-        # When True, controller is ready for normal operation
-        # When False, first MIDI input is consumed for state detection
-        self._initialization_complete: bool = True
+        # Debug server (optional)
+        self._debug_server_enabled = debug_server
+        self._debug_host = debug_host
+        self._debug_port = debug_port
+        self._broadcaster: Optional["StateBroadcaster"] = None
 
         # Configuration system
         self._controller_config = config
@@ -118,6 +135,13 @@ class Controller:
     def plugin(self) -> Optional[ControllerPlugin]:
         """Get active plugin."""
         return self._plugin
+
+    @property
+    def debug_url(self) -> Optional[str]:
+        """Get WebSocket URL for debug client connection."""
+        if self._broadcaster and self._broadcaster.is_running:
+            return f"ws://{self._broadcaster.host}:{self._broadcaster.port}"
+        return None
 
     def connect(self, input_port: Optional[str] = None, output_port: Optional[str] = None) -> None:
         """
@@ -190,45 +214,74 @@ class Controller:
             logger.debug(f"Waiting {self._state.capabilities.post_init_delay}s for device init to complete")
             time.sleep(self._state.capabilities.post_init_delay)
 
-        # Check if plugin requires initialization handshake
-        # When True, first MIDI input is consumed to detect bank/state
-        if self._state.capabilities.requires_initialization_handshake:
-            self._initialization_complete = False
-            logger.info(
-                f"Plugin '{self._plugin.name}' requires initialization handshake - "
-                f"first interaction will be consumed for state detection",
-            )
-            # Skip initial LED states - they'll be set via _apply_bank_leds() after bank detection
-        else:
-            self._initialization_complete = True
-            # Display initial LED states for controls with configured colors
-            # This lights up pads with their off_color to show the configured layout
-            logger.debug("Setting initial LED states from configuration")
-            feedback_delay = self._state.capabilities.feedback_message_delay
-            for control_def in self._plugin.get_control_definitions():
-                control = self._state.get_control(control_def.control_id)
-                if not control:
-                    continue
+        # Display initial LED states for controls with configured colors
+        # This lights up pads with their off_color to show the configured layout
+        logger.debug("Setting initial LED states from configuration")
+        feedback_delay = self._state.capabilities.feedback_message_delay
+        for control_def in self._plugin.get_control_definitions():
+            control = self._state.get_control(control_def.control_id)
+            if not control:
+                continue
 
-                # Only send feedback for controls with color support and configured colors
-                if control.definition.capabilities.supports_feedback and control.definition.off_color is not None:
-                    state_dict = {
-                        "is_on": False,
-                        "value": 0,
-                        "color": control.definition.off_color,
-                        "normalized_value": None,
-                        "led_mode": None,  # Runtime mode (None when OFF)
-                        "definition_led_mode": control.definition.led_mode,  # Configured mode
-                    }
-                    messages = self._plugin.translate_feedback(control.definition.control_id, state_dict)
-                    for msg in messages:
-                        self._send_message(msg)
-                        # Add inter-message delay if device needs it (prevents buffer overflow)
-                        if feedback_delay > 0:
-                            time.sleep(feedback_delay)
+            # Only send feedback for controls with color support and configured colors
+            if control.definition.capabilities.supports_feedback and control.definition.off_color is not None:
+                state_dict = {
+                    "is_on": False,
+                    "value": 0,
+                    "color": control.definition.off_color,
+                    "normalized_value": None,
+                    "led_mode": control.definition.off_led_mode,  # OFF state LED mode
+                    "definition_led_mode": control.definition.off_led_mode,  # Configured mode for OFF state
+                }
+                messages = self._plugin.translate_feedback(control.definition.control_id, state_dict)
+                for msg in messages:
+                    self._send_message(msg)
+                    # Add inter-message delay if device needs it (prevents buffer overflow)
+                    if feedback_delay > 0:
+                        time.sleep(feedback_delay)
+
+        # Ensure control states have correct colors for debug server
+        # This handles edge cases where update_state() may not set colors correctly
+        for control_def in self._plugin.get_control_definitions():
+            control = self._state.get_control(control_def.control_id)
+            if not control:
+                continue
+
+            # For controls with color support, ensure state color matches what was sent to hardware
+            if control.definition.capabilities.supports_color:
+                current_state = control.state
+                expected_color = control.definition.on_color if current_state.is_on else control.definition.off_color
+                if expected_color and current_state.color != expected_color:
+                    logger.debug(
+                        f"Fixing state color for {control_def.control_id}: "
+                        f"{current_state.color} -> {expected_color}",
+                    )
+                    updated_state = current_state.model_copy(update={"color": expected_color})
+                    self._state.set_control_state(control_def.control_id, updated_state)
 
         # Set connected flag
         self._connected = True
+
+        # Start debug server if enabled
+        if self._debug_server_enabled and HAS_DEBUG_SERVER and StateBroadcaster is not None:
+            self._broadcaster = StateBroadcaster(host=self._debug_host, port=self._debug_port)
+            self._broadcaster.start()
+
+            # Cache full state for new client connections
+            states = self._state.get_all_states()
+            definitions = self._state.get_all_definitions()  # Get definitions with resolved colors
+            layout = self._plugin.get_debug_layout()
+            self._broadcaster.set_full_state(
+                plugin_name=self._plugin.name,
+                layout=layout,
+                states=states,
+                definitions=definitions,
+            )
+
+            # Register callback for state broadcasting
+            self._callbacks.register_global(self._on_state_change_for_debug)
+
+            logger.info(f"Debug server started at ws://{self._debug_host}:{self._debug_port}")
 
         logger.info(f"Connected to {self._plugin.name} (input: {input_port}, output: {output_port})")
 
@@ -236,6 +289,13 @@ class Controller:
         """Disconnect from controller and cleanup."""
         if not self._connected:
             return
+
+        # Stop debug server
+        if self._broadcaster:
+            self._callbacks.unregister_global(self._on_state_change_for_debug)
+            self._broadcaster.stop()
+            self._broadcaster = None
+            logger.info("Debug server stopped")
 
         # Call plugin shutdown
         if self._plugin and self._midi:
@@ -421,9 +481,19 @@ class Controller:
 
         # All checks passed - translate to MIDI and send
         if self._plugin:
+            # Include definition LED mode for plugins that need it (e.g., APC mini MK2)
+            if "definition_led_mode" not in kwargs:
+                is_on = kwargs.get("is_on", False)
+                kwargs["definition_led_mode"] = (
+                    control.definition.on_led_mode if is_on else control.definition.off_led_mode
+                )
             messages = self._plugin.translate_feedback(control_id, kwargs)
+            feedback_delay = self._state.capabilities.feedback_message_delay
             for msg in messages:
                 self._send_message(msg)
+                # Add inter-message delay if device needs it (e.g., APC mini MK2)
+                if feedback_delay > 0:
+                    time.sleep(feedback_delay)
 
     def can_set_state(self, control_id: str, **kwargs) -> bool:
         """
@@ -465,6 +535,109 @@ class Controller:
 
         except Exception:
             return False
+
+    def set_states(
+        self,
+        updates: list[tuple[str, dict]],
+    ) -> None:
+        """
+        Set multiple control states in a batch (sends hardware feedback).
+
+        Optimizes for hardware that supports batch updates (e.g., LPD8 single SysEx
+        for all pads) and handles timing delays between messages via the plugin's
+        translate_feedback_batch() method.
+
+        Args:
+            updates: List of (control_id, state_dict) tuples.
+                     Each state_dict can contain: is_on, color, led_mode, value
+
+        Raises:
+            RuntimeError: If not connected
+            ValueError: If any control not found
+            CapabilityError: If any operation unsupported (strict mode only)
+
+        Example:
+            controller.set_states([
+                ('pad_1', {'is_on': True, 'color': 'red', 'led_mode': 'pulse'}),
+                ('pad_2', {'is_on': True, 'color': 'blue', 'led_mode': 'solid'}),
+            ])
+        """
+        self._ensure_connected()
+
+        if not updates:
+            return
+
+        # Validate all controls first (fail fast)
+        validated_updates: list[tuple[str, dict]] = []
+        for control_id, kwargs in updates:
+            control = self._state.get_control(control_id)
+            if not control:
+                raise ValueError(f"Unknown control: {control_id}")
+
+            capabilities = control.definition.capabilities
+
+            # Check feedback support
+            if not capabilities.supports_feedback:
+                self._handle_unsupported_operation(f"Control '{control_id}' does not support feedback")
+                continue
+
+            # Validate color
+            if "color" in kwargs:
+                if not capabilities.supports_color:
+                    self._handle_unsupported_operation(f"Control '{control_id}' does not support color")
+                    continue
+                if not self._state.validate_color(control_id, kwargs["color"]):
+                    self._handle_unsupported_operation(f"Color '{kwargs['color']}' not valid for '{control_id}'")
+                    continue
+
+            # Validate value setting
+            if "value" in kwargs and not capabilities.supports_value_setting:
+                self._handle_unsupported_operation(f"Control '{control_id}' does not support value setting")
+                continue
+
+            # Add definition LED mode based on is_on state
+            state_dict = dict(kwargs)
+            if "definition_led_mode" not in state_dict:
+                is_on = state_dict.get("is_on", False)
+                state_dict["definition_led_mode"] = (
+                    control.definition.on_led_mode if is_on else control.definition.off_led_mode
+                )
+
+            validated_updates.append((control_id, state_dict))
+
+        if not validated_updates or not self._plugin:
+            return
+
+        # Call plugin's batch method for optimized handling
+        result = self._plugin.translate_feedback_batch(validated_updates)
+
+        # Send messages with timing from plugin or default
+        default_delay = self._state.capabilities.feedback_message_delay
+        for i, msg in enumerate(result.messages):
+            self._send_message(msg)
+            # Use per-message delay if provided, otherwise default
+            delay = result.delays[i] if result.delays is not None and i < len(result.delays) else default_delay
+            if delay > 0:
+                time.sleep(delay)
+
+        # Update internal control states to match what we sent to hardware.
+        # This ensures auto-feedback (triggered by physical pad press) uses
+        # the correct color/led_mode instead of stale default values.
+        for control_id, state_dict in validated_updates:
+            control = self._state.get_control(control_id)
+            if control:
+                current_state = control._state
+                new_state = ControlState(
+                    control_id=control_id,
+                    is_discovered=current_state.is_discovered,
+                    first_discovered_at=current_state.first_discovered_at,
+                    value=state_dict.get("value", current_state.value),
+                    normalized_value=current_state.normalized_value,
+                    is_on=state_dict.get("is_on", current_state.is_on),
+                    color=state_dict.get("color", current_state.color),
+                    led_mode=state_dict.get("led_mode", current_state.led_mode),
+                )
+                self._state.set_control_state(control_id, new_state)
 
     # Bank management
 
@@ -609,7 +782,7 @@ class Controller:
         """
         Create Control instance from definition.
 
-        Uses configuration resolver to determine actual control type and colors.
+        Uses configuration resolver to determine actual control type, colors, and LED modes.
 
         Args:
             definition: Control definition
@@ -617,37 +790,50 @@ class Controller:
         Returns:
             Control instance
         """
-        # Resolve type, colors, and LED mode from config
-        actual_type, on_color, off_color, led_mode = self._config_resolver.resolve_config(
+        # Resolve type, colors, and LED modes from config
+        actual_type, on_color, off_color, on_led_mode, off_led_mode = self._config_resolver.resolve_config(
             definition.control_id,
             definition,
         )
 
-        # Validate led_mode against capabilities
-        if led_mode is not None:
-            supported_modes = definition.capabilities.supported_led_modes
-            # If supported_led_modes is None, only "solid" is implicitly supported
-            if supported_modes is None:
-                if led_mode != "solid":
-                    self._handle_unsupported_operation(
-                        f"Control '{definition.control_id}' does not support LED mode "
-                        f"'{led_mode}'. Only 'solid' is supported.",
-                    )
-                    led_mode = None  # Fall back to default
-            elif led_mode not in supported_modes:
-                self._handle_unsupported_operation(
-                    f"Control '{definition.control_id}' does not support LED mode "
-                    f"'{led_mode}'. Supported modes: {supported_modes}",
-                )
-                led_mode = None  # Fall back to default
+        # Validate LED modes against capabilities
+        supported_modes = definition.capabilities.supported_led_modes
+        for mode_name, mode_value in [("on_led_mode", on_led_mode), ("off_led_mode", off_led_mode)]:
+            if mode_value is not None:
+                # If supported_led_modes is None, only "solid" is implicitly supported
+                if supported_modes is None:
+                    if mode_value.animation_type != LEDAnimationType.SOLID:
+                        self._handle_unsupported_operation(
+                            f"Control '{definition.control_id}' does not support LED mode "
+                            f"'{mode_value.animation_type.value}' for {mode_name}. Only 'solid' is supported.",
+                        )
+                        if mode_name == "on_led_mode":
+                            on_led_mode = None
+                        else:
+                            off_led_mode = None
+                else:
+                    # Compare LEDMode.animation_type to supported modes
+                    supported_animation_types = {mode.animation_type for mode in supported_modes}
+                    if mode_value.animation_type not in supported_animation_types:
+                        self._handle_unsupported_operation(
+                            f"Control '{definition.control_id}' does not support LED mode "
+                            f"'{mode_value.animation_type.value}' for {mode_name}. Supported modes: {[m.value for m in supported_animation_types]}",
+                        )
+                        if mode_name == "on_led_mode":
+                            on_led_mode = None
+                        else:
+                            off_led_mode = None
 
-        # Create control with resolved type, colors, and LED mode
+        # Create control with resolved type, colors, and LED modes
+        # Clear type_modes since it's no longer needed after resolution
         resolved_definition = definition.model_copy(
             update={
                 "control_type": actual_type,
+                "type_modes": None,
                 "on_color": on_color,
                 "off_color": off_color,
-                "led_mode": led_mode,
+                "on_led_mode": on_led_mode,
+                "off_led_mode": off_led_mode,
             },
         )
 
@@ -726,23 +912,6 @@ class Controller:
         if not self._plugin or not self._state:
             return
 
-        # Handle initialization handshake (first interaction consumed)
-        if not self._initialization_complete:
-            bank_id = self._plugin.complete_initialization(msg, self._send_message)
-            self._initialization_complete = True
-
-            if bank_id:
-                # Update internal bank tracking
-                control_type = ControlType.TOGGLE  # Primary type for pads
-                self._state.set_active_bank(control_type, bank_id)
-                self._callbacks.on_bank_change(control_type, bank_id)
-
-                # Apply LED colors for detected bank
-                self._apply_bank_leds(bank_id)
-
-            logger.info(f"Initialization complete (bank: {bank_id or 'default'})")
-            return  # Consume message - do not pass to callbacks
-
         # Check for bank switch
         bank_id = self._plugin.translate_bank_switch(msg)
         if bank_id:
@@ -770,7 +939,7 @@ class Controller:
         # Update state - allow plugin to compute state for hardware-managed controls
         try:
             # Check if plugin wants to compute state itself
-            plugin_state = self._plugin.compute_control_state(
+            plugin_state, trigger_callback = self._plugin.compute_control_state(
                 control_id=control_id,
                 value=value,
                 signal_type=signal_type,
@@ -786,9 +955,10 @@ class Controller:
                 new_state = self._state.update_state(control_id, value)
 
             # Fire callbacks with control type and category
-            control_type = control.definition.control_type
-            category = control.definition.category
-            self._callbacks.on_control_change(control_id, new_state, control_type, signal_type, category)
+            if trigger_callback:
+                control_type = control.definition.control_type
+                category = control.definition.category
+                self._callbacks.on_control_change(control_id, new_state, control_type, signal_type, category)
 
             # Auto-send feedback if control REQUIRES it (hardware doesn't manage LEDs)
             # Works for both color-based (pads) and on/off-based (buttons) controls
@@ -797,13 +967,17 @@ class Controller:
             )
             if control.definition.capabilities.requires_feedback:
                 # Convert ControlState to dict for translate_feedback
+                # definition_led_mode is based on is_on state (on_led_mode or off_led_mode)
+                definition_led_mode = (
+                    control.definition.on_led_mode if new_state.is_on else control.definition.off_led_mode
+                )
                 state_dict = {
                     "is_on": new_state.is_on,
                     "value": new_state.value,
                     "color": new_state.color,
                     "normalized_value": new_state.normalized_value,
                     "led_mode": new_state.led_mode,
-                    "definition_led_mode": control.definition.led_mode,  # Configured mode
+                    "definition_led_mode": definition_led_mode,
                 }
                 messages = self._plugin.translate_feedback(control_id, state_dict)
                 feedback_delay = self._state.capabilities.feedback_message_delay
@@ -815,3 +989,14 @@ class Controller:
 
         except ValueError as e:
             logger.error(f"Error updating state: {e}")
+
+    def _on_state_change_for_debug(self, control_id: str, state: ControlState) -> None:
+        """
+        Callback to broadcast state changes to debug clients.
+
+        Args:
+            control_id: ID of the control that changed
+            state: New state of the control
+        """
+        if self._broadcaster:
+            self._broadcaster.broadcast_state_change(control_id, state)

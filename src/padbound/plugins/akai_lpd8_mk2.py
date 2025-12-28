@@ -253,6 +253,7 @@ from padbound.controls import (
 )
 from padbound.logging_config import get_logger
 from padbound.plugin import (
+    BatchFeedbackResult,
     ControllerPlugin,
     MIDIMapping,
     MIDIMessageType,
@@ -475,7 +476,6 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
             supports_bank_feedback=True,  # Via active program query
             indexing_scheme="1d",  # Linear pad/knob numbering
             supports_persistent_configuration=True,  # Supports SysEx programming
-            requires_initialization_handshake=False,  # Can query current program directly!
         )
 
     def get_bank_definitions(self) -> list[BankDefinition]:
@@ -1024,6 +1024,62 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
         # Build and return SysEx message with all 8 pad colors
         return [self._build_rgb_sysex(rgb_values)]
 
+    def translate_feedback_batch(
+        self,
+        updates: list[tuple[str, dict]],
+    ) -> BatchFeedbackResult:
+        """
+        Translate multiple control states to MIDI feedback in a single batch.
+
+        For LPD8 MK2, this is a significant optimization: instead of sending
+        8 separate SysEx messages (one per pad via translate_feedback), we can
+        update all 8 pads in a SINGLE SysEx 0x06 message.
+
+        No timing delays are needed for this controller.
+
+        Args:
+            updates: List of (control_id, state_dict) tuples to process.
+
+        Returns:
+            BatchFeedbackResult with single SysEx message for all pads.
+        """
+        # Filter to only pad updates and collect them
+        pad_updates: dict[int, dict] = {}
+        for control_id, state_dict in updates:
+            if not control_id.startswith("pad_"):
+                continue
+
+            # Extract pad number (e.g., "pad_3@bank_1" → 3)
+            try:
+                pad_str = control_id.split("_")[1].split("@")[0]
+                pad_num = int(pad_str)
+            except (IndexError, ValueError):
+                continue
+
+            if 1 <= pad_num <= self.PAD_COUNT:
+                pad_updates[pad_num] = state_dict
+
+        # If no pad updates, return empty result
+        if not pad_updates:
+            return BatchFeedbackResult(messages=[])
+
+        # Start with current LED state (preserves other pads' colors)
+        rgb_values = list(self._current_led_colors)
+
+        # Apply all updates
+        for pad_num, state_dict in pad_updates.items():
+            state_dict.get("is_on", False)
+            color = state_dict.get("color")
+
+            rgb_color = LPD8MK2RGBColor.from_string(color) if color else LPD8MK2RGBColor(r=0, g=0, b=0)
+
+            rgb_midi = rgb_color.to_midi_range()
+            rgb_values[pad_num - 1] = rgb_midi
+            self._current_led_colors[pad_num - 1] = rgb_midi
+
+        # Build single SysEx message for all 8 pads
+        return BatchFeedbackResult(messages=[self._build_rgb_sysex(rgb_values)])
+
     def _build_rgb_sysex(self, rgb_data: list[tuple[int, int, int]]) -> mido.Message:
         """
         Build SysEx message for RGB LED control using Pydantic models.
@@ -1071,9 +1127,9 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
             # Extract colors from config if available
             if bank_config and bank_config.controls:
                 control_config = bank_config.controls.get(pad_id)
-                if control_config and control_config.color:
+                if control_config and control_config.on_color:
                     # Parse ON color from config
-                    on_color = LPD8MK2RGBColor.from_string(control_config.color)
+                    on_color = LPD8MK2RGBColor.from_string(control_config.on_color)
 
                     # OFF color: use dimmed version of ON color (25% brightness)
                     off_color = LPD8MK2RGBColor(r=on_color.r // 4, g=on_color.g // 4, b=on_color.b // 4)

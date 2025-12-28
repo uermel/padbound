@@ -128,9 +128,12 @@ from padbound.controls import (
     ControlState,
     ControlType,
     ControlTypeModes,
+    LEDAnimationType,
+    LEDMode,
 )
 from padbound.logging_config import get_logger
 from padbound.plugin import (
+    BatchFeedbackResult,
     ControllerPlugin,
     MIDIMapping,
     MIDIMessageType,
@@ -291,7 +294,6 @@ class PreSonusAtomPlugin(ControllerPlugin):
             supports_bank_feedback=False,  # Banks are hardware-managed
             indexing_scheme="1d",  # Linear pad numbering (1-16)
             supports_persistent_configuration=False,  # No SysEx programming
-            requires_initialization_handshake=False,  # Native mode switch handled in init()
         )
 
     def get_control_definitions(self) -> list[ControlDefinition]:
@@ -323,7 +325,11 @@ class PreSonusAtomPlugin(ControllerPlugin):
                         supports_led=True,
                         supports_color=True,
                         color_mode="rgb",
-                        supported_led_modes=["solid", "pulse", "blink"],
+                        supported_led_modes=[
+                            LEDMode(animation_type=LEDAnimationType.SOLID),
+                            LEDMode(animation_type=LEDAnimationType.PULSE),
+                            LEDMode(animation_type=LEDAnimationType.BLINK),
+                        ],
                         requires_discovery=False,
                     ),
                     display_name=f"Pad {pad_num}",
@@ -602,6 +608,30 @@ class PreSonusAtomPlugin(ControllerPlugin):
         # Encoders have no feedback capability
         return messages
 
+    def translate_feedback_batch(
+        self,
+        updates: list[tuple[str, dict]],
+    ) -> BatchFeedbackResult:
+        """
+        Translate multiple control states to MIDI feedback in a batch.
+
+        For PreSonus Atom, there's no batch optimization possible since each pad
+        requires 4 separate MIDI messages. This implementation collects all messages
+        from translate_feedback() calls.
+
+        No timing delays are needed for this controller.
+
+        Args:
+            updates: List of (control_id, state_dict) tuples to process.
+
+        Returns:
+            BatchFeedbackResult with all messages, no custom delays.
+        """
+        messages = []
+        for control_id, state_dict in updates:
+            messages.extend(self.translate_feedback(control_id, state_dict))
+        return BatchFeedbackResult(messages=messages)
+
     def translate_input(self, msg: mido.Message) -> Optional[tuple[str, int, str]]:
         """
         Translate MIDI input with encoder relative mode handling.
@@ -649,7 +679,7 @@ class PreSonusAtomPlugin(ControllerPlugin):
         signal_type: str,
         current_state: ControlState,
         control_definition: ControlDefinition,
-    ) -> Optional[ControlState]:
+    ) -> tuple[Optional[ControlState], bool]:
         """
         Convert encoder deltas to absolute positions.
 
@@ -675,10 +705,13 @@ class PreSonusAtomPlugin(ControllerPlugin):
             self._encoder_positions[control_id] = new_pos
 
             # Return state with accumulated position (not delta)
-            return ControlState(
-                control_id=control_id,
-                value=new_pos,
-                normalized_value=new_pos / 127.0,
+            return (
+                ControlState(
+                    control_id=control_id,
+                    value=new_pos,
+                    normalized_value=new_pos / 127.0,
+                ),
+                True,
             )
 
-        return None  # Use default handling for other controls
+        return (None, True)  # Use default handling for other controls

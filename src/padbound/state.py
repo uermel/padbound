@@ -11,6 +11,7 @@ from typing import Optional
 
 from padbound.controls import (
     Control,
+    ControlDefinition,
     ControllerCapabilities,
     ControlState,
     ControlType,
@@ -216,6 +217,16 @@ class ControllerState:
         """
         with self._lock:
             return {control_id: control.state for control_id, control in self._controls.items()}
+
+    def get_all_definitions(self) -> dict[str, ControlDefinition]:
+        """
+        Get all control definitions (with resolved colors from config).
+
+        Returns:
+            Dictionary mapping control_id to ControlDefinition
+        """
+        with self._lock:
+            return {control_id: control.definition for control_id, control in self._controls.items()}
 
     def get_discovered_controls(self) -> list[str]:
         """

@@ -69,6 +69,7 @@ from padbound.controls import (
 )
 from padbound.logging_config import get_logger
 from padbound.plugin import (
+    BatchFeedbackResult,
     ControllerPlugin,
     FeedbackMapping,
     MIDIMapping,
@@ -656,7 +657,7 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
         signal_type: str,
         current_state: ControlState,
         control_definition: ControlDefinition,
-    ) -> Optional[ControlState]:
+    ) -> tuple[Optional[ControlState], bool]:
         """
         Compute control state with deferred feedback for TOGGLE pads.
 
@@ -689,20 +690,27 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
             # Mark for deferred feedback (will be sent on Note Off)
             self._pending_feedback[control_id] = new_is_on
 
-            # LED mode only applies when ON
-            led_mode = control_definition.led_mode if new_is_on else None
+            # LED mode based on state (on_led_mode when ON, off_led_mode when OFF)
+            led_mode = control_definition.on_led_mode if new_is_on else control_definition.off_led_mode
 
             # Return new state (callback will fire once here)
             # NOTE: control_id is REQUIRED by ControlState
-            return ControlState(
-                control_id=control_id,  # REQUIRED!
-                is_on=new_is_on,
-                value=value,
-                color=control_definition.on_color if new_is_on else control_definition.off_color,
-                led_mode=led_mode,
+            return (
+                ControlState(
+                    control_id=control_id,  # REQUIRED!
+                    is_on=new_is_on,
+                    value=value,
+                    color=control_definition.on_color if new_is_on else control_definition.off_color,
+                    led_mode=led_mode,
+                ),
+                True,
             )
 
-        return None  # Use default behavior for MOMENTARY pads and other controls
+        # For toggle pads on Note Off (value == 0), skip callback to avoid double-triggering
+        if is_pad and is_toggle and value == 0:
+            return (None, False)
+
+        return (None, True)  # Use default behavior for MOMENTARY pads and other controls
 
     def translate_feedback(self, control_id: str, state_dict: dict) -> list[mido.Message]:
         """
@@ -758,6 +766,30 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
                 messages.append(msg)
 
         return messages
+
+    def translate_feedback_batch(
+        self,
+        updates: list[tuple[str, dict]],
+    ) -> BatchFeedbackResult:
+        """
+        Translate multiple control states to MIDI feedback in a batch.
+
+        For X-Touch Mini, there's no batch optimization possible since each control
+        requires separate Note On or CC messages. This implementation collects all
+        messages from translate_feedback() calls.
+
+        No timing delays are needed for this controller.
+
+        Args:
+            updates: List of (control_id, state_dict) tuples to process.
+
+        Returns:
+            BatchFeedbackResult with all messages, no custom delays.
+        """
+        messages = []
+        for control_id, state_dict in updates:
+            messages.extend(self.translate_feedback(control_id, state_dict))
+        return BatchFeedbackResult(messages=messages)
 
     def _get_feedback_note(self, control_id: str) -> Optional[int]:
         """

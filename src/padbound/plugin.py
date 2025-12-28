@@ -7,8 +7,9 @@ and hardware-specific initialization/shutdown sequences.
 """
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Callable, Literal, Optional, Union
+from typing import TYPE_CHECKING, Any, Callable, Literal, Optional, Tuple, Union
 
 import mido
 from pydantic import BaseModel, Field
@@ -18,9 +19,29 @@ from padbound.controls import (
     ControlDefinition,
 )
 
+
+@dataclass
+class BatchFeedbackResult:
+    """Result from translate_feedback_batch with optional timing control.
+
+    Plugins return this from translate_feedback_batch() to provide both the MIDI
+    messages and optional per-message timing delays.
+
+    Attributes:
+        messages: List of MIDI messages to send
+        delays: Optional list of delays (seconds) to apply AFTER sending each message.
+                If None, uses the default feedback_message_delay from capabilities.
+                If provided, must have same length as messages (or be empty for no delays).
+    """
+
+    messages: list[mido.Message] = field(default_factory=list)
+    delays: list[float] | None = None
+
+
 if TYPE_CHECKING:
     from padbound.config import BankConfig, ControllerConfig
     from padbound.controls import ControllerCapabilities, ControlState
+    from padbound.debug.layout import DebugLayout
 
 
 class MIDIMessageType(str, Enum):
@@ -420,33 +441,6 @@ class ControllerPlugin(ABC):
         """
         return  # noqa: B027
 
-    def complete_initialization(self, msg: mido.Message, send_message: Callable[[mido.Message], None]) -> Optional[str]:
-        """
-        Complete initialization using first input message (optional).
-
-        Called only when ControllerCapabilities.requires_initialization_handshake
-        is True. The first MIDI input after connect() is consumed (not passed
-        to callbacks) and used to detect the controller's current state.
-
-        Use cases:
-        - Detect current bank/program when hardware cannot be queried
-        - Detect mode when controller has multiple modes
-        - Initialize state that depends on first user interaction
-
-        After this method returns, the Controller will:
-        - Update internal bank state (if bank_id returned)
-        - Apply LED colors for the detected bank
-        - Resume normal operation (subsequent inputs trigger callbacks)
-
-        Args:
-            msg: First MIDI message received after connect()
-            send_message: Function to send MIDI messages to controller
-
-        Returns:
-            Detected bank_id if applicable, None otherwise
-        """
-        return None
-
     @abstractmethod
     def get_control_definitions(self) -> list[ControlDefinition]:
         """
@@ -484,6 +478,20 @@ class ControllerPlugin(ABC):
             List of banks (empty list if no banks)
         """
         return []
+
+    def get_debug_layout(self) -> Optional["DebugLayout"]:
+        """
+        Get TUI layout definition for the debug visualization.
+
+        Override this method to provide a custom layout for the state
+        debug TUI client. The layout defines how controls are visually
+        arranged to match the physical controller.
+
+        Returns:
+            DebugLayout with sections and control placements, or None
+            for a default linear layout.
+        """
+        return None
 
     def get_bank_mappings(self) -> list[BankMapping]:
         """
@@ -539,6 +547,39 @@ class ControllerPlugin(ABC):
 
         return messages
 
+    @abstractmethod
+    def translate_feedback_batch(
+        self,
+        updates: list[tuple[str, dict[str, Any]]],
+    ) -> BatchFeedbackResult:
+        """
+        Translate multiple control states to MIDI feedback in a single batch.
+
+        All plugins must implement this method. It allows plugins to optimize
+        multi-control updates (e.g., LPD8 MK2 can update all 8 pads in one SysEx)
+        and control timing between messages (e.g., APC mini MK2 needs 10ms delays).
+
+        The Controller calls this method when set_states() is used. The plugin
+        can return a BatchFeedbackResult with:
+        - messages: All MIDI messages to send
+        - delays: Optional per-message delays (None = use default feedback_message_delay)
+
+        Args:
+            updates: List of (control_id, state_dict) tuples to process.
+                    Each state_dict contains: is_on, color, led_mode, value, etc.
+
+        Returns:
+            BatchFeedbackResult with messages and optional timing delays.
+
+        Example implementation (simple, no batch optimization):
+            def translate_feedback_batch(self, updates):
+                messages = []
+                for control_id, state_dict in updates:
+                    messages.extend(self.translate_feedback(control_id, state_dict))
+                return BatchFeedbackResult(messages=messages)
+        """
+        pass
+
     def translate_bank_switch(self, msg: mido.Message) -> Optional[str]:
         """
         Translate MIDI message to bank switch.
@@ -562,9 +603,9 @@ class ControllerPlugin(ABC):
         signal_type: str,
         current_state: "ControlState",
         control_definition: "ControlDefinition",
-    ) -> Optional["ControlState"]:
+    ) -> Tuple[Optional["ControlState"], bool]:
         """
-        Compute new state for a control.
+        Compute new state for a control and inform controller whether callback should be triggered.
 
         Override this method when hardware manages state internally
         (e.g., toggle state tracked by controller, not software).
@@ -588,7 +629,7 @@ class ControllerPlugin(ABC):
             ControlState if plugin handles state computation,
             None to use default control type behavior.
         """
-        return None  # Default: use standard control type behavior
+        return None, True  # Default: use standard control type behavior and trigger callback
 
     # Helper methods
 

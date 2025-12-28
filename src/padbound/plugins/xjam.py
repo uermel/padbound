@@ -146,6 +146,7 @@ from padbound.controls import (
 )
 from padbound.logging_config import get_logger
 from padbound.plugin import (
+    BatchFeedbackResult,
     ControllerPlugin,
     MIDIMapping,
     MIDIMessageType,
@@ -485,7 +486,6 @@ class XjamPlugin(ControllerPlugin):
             supports_bank_feedback=False,  # No automatic bank feedback
             indexing_scheme="1d",  # Linear pad/knob numbering
             supports_persistent_configuration=True,  # SysEx programming supported
-            requires_initialization_handshake=False,  # We configure channels for detection
         )
 
     def get_bank_definitions(self) -> list[BankDefinition]:
@@ -943,6 +943,24 @@ class XjamPlugin(ControllerPlugin):
         # Xjam does not support LED feedback from software
         return []
 
+    def translate_feedback_batch(
+        self,
+        updates: list[tuple[str, dict]],
+    ) -> BatchFeedbackResult:
+        """
+        Translate multiple control states to MIDI feedback in a batch.
+
+        The Xjam does not support LED control from software - the controller
+        manages its own LEDs. Returns empty result.
+
+        Args:
+            updates: List of (control_id, state_dict) tuples to process.
+
+        Returns:
+            Empty BatchFeedbackResult (no feedback supported).
+        """
+        return BatchFeedbackResult(messages=[])
+
     def compute_control_state(
         self,
         control_id: str,
@@ -950,7 +968,7 @@ class XjamPlugin(ControllerPlugin):
         signal_type: str,
         current_state: "ControlState",
         control_definition: "ControlDefinition",
-    ) -> Optional["ControlState"]:
+    ) -> tuple[Optional["ControlState"], bool]:
         """
         Custom state computation for Xjam.
 
@@ -975,13 +993,13 @@ class XjamPlugin(ControllerPlugin):
         """
         from datetime import datetime
 
-        from ..controls import ControlState, ControlType
+        from padbound.controls import ControlState, ControlType
 
         # Only handle pads with toggle type
         if not control_id.startswith("pad_"):
-            return None
+            return (None, True)
         if control_definition.control_type != ControlType.TOGGLE:
-            return None
+            return (None, True)
 
         # Xjam reports state directly via velocity:
         # velocity > 0 means pad is ON, velocity = 0 means pad is OFF
@@ -990,17 +1008,20 @@ class XjamPlugin(ControllerPlugin):
         # Determine color based on state
         color = control_definition.on_color if is_on else control_definition.off_color
 
-        # LED mode only applies when ON
-        led_mode = control_definition.led_mode if is_on else None
+        # LED mode based on state (on_led_mode when ON, off_led_mode when OFF)
+        led_mode = control_definition.on_led_mode if is_on else control_definition.off_led_mode
 
-        return ControlState(
-            control_id=control_id,
-            timestamp=datetime.now(),
-            is_discovered=True,
-            is_on=is_on,
-            value=value,
-            color=color,
-            led_mode=led_mode,
+        return (
+            ControlState(
+                control_id=control_id,
+                timestamp=datetime.now(),
+                is_discovered=True,
+                is_on=is_on,
+                value=value,
+                color=color,
+                led_mode=led_mode,
+            ),
+            True,
         )
 
     def translate_input(self, msg: mido.Message) -> Optional[tuple[str, int, str]]:

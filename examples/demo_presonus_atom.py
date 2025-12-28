@@ -84,7 +84,7 @@ def create_example_config() -> ControllerConfig:
             type=ControlType.TOGGLE,
             color=on_color,
             off_color=off_color,
-            led_mode="pulse",  # Breathing effect when ON
+            on_led_mode="pulse",  # Breathing effect when ON
         )
 
     # Row 3: Mixed colors with dim off states - BLINK mode (flashing effect when ON)
@@ -99,7 +99,7 @@ def create_example_config() -> ControllerConfig:
             type=ControlType.TOGGLE,
             color=on_color,
             off_color=off_color,
-            led_mode="blink",  # Flashing effect when ON
+            on_led_mode="blink",  # Flashing effect when ON
         )
 
     # Row 4 (top): MOMENTARY mode - lights up only while pressed
