@@ -985,11 +985,17 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
         # Send introduction message and get fader positions
         if receive_message is not None:
             intro = APCminiMK2IntroRequest()
-            send_message(intro.to_sysex_message())
+            intro_msg = intro.to_sysex_message()
+            logger.debug(f"Sending intro SysEx: {intro_msg}")
+            send_message(intro_msg)
 
             # Wait for response with timeout
+            logger.debug("Waiting for intro response (1.0s timeout)...")
             response_msg = receive_message(1.0)  # 1 second timeout
+            logger.debug(f"Received response: {response_msg}")
+
             if response_msg and response_msg.type == "sysex":
+                logger.debug(f"SysEx data bytes: {list(response_msg.data)}")
                 response = APCminiMK2IntroResponse.from_sysex_data(response_msg.data)
                 if response:
                     for i, pos in enumerate(response.fader_positions, 1):
@@ -998,9 +1004,11 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
                         discovered_values[fader_id] = pos
                     logger.info(f"Discovered fader positions: {discovered_values}")
                 else:
-                    logger.warning("Failed to parse introduction response")
+                    logger.warning(f"Failed to parse introduction response from data: {list(response_msg.data)}")
+            elif response_msg:
+                logger.warning(f"Unexpected response type: {response_msg.type} (expected 'sysex')")
             else:
-                logger.warning("No introduction response received from device")
+                logger.warning("No introduction response received from device (timeout)")
 
         # NOTE: The 0x60 intro message above clears all LEDs internally and resets
         # the device to SysEx-ready state. Do NOT send Note On clearing here, as

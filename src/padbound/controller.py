@@ -240,6 +240,25 @@ class Controller:
                     if feedback_delay > 0:
                         time.sleep(feedback_delay)
 
+        # Ensure control states have correct colors for debug server
+        # This handles edge cases where update_state() may not set colors correctly
+        for control_def in self._plugin.get_control_definitions():
+            control = self._state.get_control(control_def.control_id)
+            if not control:
+                continue
+
+            # For controls with color support, ensure state color matches what was sent to hardware
+            if control.definition.capabilities.supports_color:
+                current_state = control.state
+                expected_color = control.definition.on_color if current_state.is_on else control.definition.off_color
+                if expected_color and current_state.color != expected_color:
+                    logger.debug(
+                        f"Fixing state color for {control_def.control_id}: "
+                        f"{current_state.color} -> {expected_color}",
+                    )
+                    updated_state = current_state.model_copy(update={"color": expected_color})
+                    self._state.set_control_state(control_def.control_id, updated_state)
+
         # Set connected flag
         self._connected = True
 
@@ -806,9 +825,11 @@ class Controller:
                             off_led_mode = None
 
         # Create control with resolved type, colors, and LED modes
+        # Clear type_modes since it's no longer needed after resolution
         resolved_definition = definition.model_copy(
             update={
                 "control_type": actual_type,
+                "type_modes": None,
                 "on_color": on_color,
                 "off_color": off_color,
                 "on_led_mode": on_led_mode,
