@@ -1104,7 +1104,8 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
     def translate_feedback(
         self,
         control_id: str,
-        state_dict: dict,
+        state: ControlState,
+        definition: ControlDefinition,
     ) -> list[mido.Message]:
         """
         Translate control state to LED feedback.
@@ -1116,7 +1117,8 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
 
         Args:
             control_id: Control being updated
-            state_dict: New state (is_on, value, color, etc.)
+            state: Current control state (is_on, value, color, led_mode, etc.)
+            definition: Control definition (on_led_mode, off_led_mode, colors, capabilities)
 
         Returns:
             List of MIDI messages for LED control
@@ -1138,11 +1140,11 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
                 return []
 
             # Get color and LED mode from state
-            # Use 'or' to handle both missing key AND None value
-            color = state_dict.get("color") or "off"
-            led_mode: LEDMode | None = state_dict.get("led_mode")
-            definition_led_mode: LEDMode | None = state_dict.get("definition_led_mode") or led_mode
-            is_on = state_dict.get("is_on", False)
+            color = state.color or "off"
+            is_on = state.is_on or False
+            # Compute definition_led_mode from definition based on is_on state
+            definition_led_mode = definition.on_led_mode if is_on else definition.off_led_mode
+            # Use state's led_mode if set, otherwise fall back to definition's
 
             # Get animation type from LEDMode (default to SOLID)
             animation_type = definition_led_mode.animation_type if definition_led_mode else LEDAnimationType.SOLID
@@ -1208,7 +1210,7 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
         # Handle fader control / navigation button feedback (single red LED)
         elif control_id in self.FADER_CTRL_BUTTONS:
             midi_note = self.FADER_CTRL_BUTTONS[control_id]
-            is_on = state_dict.get("is_on", False)
+            is_on = state.is_on or False
             velocity = self.SINGLE_LED_ON if is_on else self.SINGLE_LED_OFF
 
             msg = mido.Message("note_on", channel=0, note=midi_note, velocity=velocity)
@@ -1217,7 +1219,7 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
         # Handle scene button feedback (single green LED)
         elif control_id in self.SCENE_BUTTONS:
             midi_note = self.SCENE_BUTTONS[control_id]
-            is_on = state_dict.get("is_on", False)
+            is_on = state.is_on or False
             velocity = self.SINGLE_LED_ON if is_on else self.SINGLE_LED_OFF
 
             msg = mido.Message("note_on", channel=0, note=midi_note, velocity=velocity)
@@ -1228,7 +1230,7 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
 
     def translate_feedback_batch(
         self,
-        updates: list[tuple[str, dict]],
+        updates: list[tuple[str, ControlState, ControlDefinition]],
     ) -> BatchFeedbackResult:
         """
         Translate multiple control states to MIDI feedback in a batch.
@@ -1244,7 +1246,7 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
         3. All animation Note Ons (pulse/blink ON pads)
 
         Args:
-            updates: List of (control_id, state_dict) tuples to process.
+            updates: List of (control_id, state, definition) tuples to process.
 
         Returns:
             BatchFeedbackResult with messages and per-message delays.
@@ -1256,7 +1258,7 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
         anim_messages: list[mido.Message] = []  # Note On with palette
         button_messages: list[mido.Message] = []  # Button feedback
 
-        for control_id, state_dict in updates:
+        for control_id, state, definition in updates:
             if control_id.startswith("pad_"):
                 # Parse pad coordinates (e.g., "pad_0_0" → row 0, col 0)
                 try:
@@ -1270,10 +1272,11 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
 
                 pad_note = self.PAD_START_NOTE + (row * 8) + col
 
-                color = state_dict.get("color") or "off"
-                led_mode: LEDMode | None = state_dict.get("led_mode")
-                definition_led_mode: LEDMode | None = state_dict.get("definition_led_mode") or led_mode
-                is_on = state_dict.get("is_on", False)
+                color = state.color or "off"
+                is_on = state.is_on or False
+                # Compute definition_led_mode from definition based on is_on state
+                definition_led_mode = definition.on_led_mode if is_on else definition.off_led_mode
+                # Use state's led_mode if set, otherwise fall back to definition's
 
                 # Get animation type from LEDMode (default to SOLID)
                 animation_type = definition_led_mode.animation_type if definition_led_mode else LEDAnimationType.SOLID
@@ -1339,13 +1342,13 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
 
             elif control_id in self.FADER_CTRL_BUTTONS:
                 midi_note = self.FADER_CTRL_BUTTONS[control_id]
-                is_on = state_dict.get("is_on", False)
+                is_on = state.is_on or False
                 velocity = self.SINGLE_LED_ON if is_on else self.SINGLE_LED_OFF
                 button_messages.append(mido.Message("note_on", channel=0, note=midi_note, velocity=velocity))
 
             elif control_id in self.SCENE_BUTTONS:
                 midi_note = self.SCENE_BUTTONS[control_id]
-                is_on = state_dict.get("is_on", False)
+                is_on = state.is_on or False
                 velocity = self.SINGLE_LED_ON if is_on else self.SINGLE_LED_OFF
                 button_messages.append(mido.Message("note_on", channel=0, note=midi_note, velocity=velocity))
 

@@ -248,6 +248,7 @@ from padbound.controls import (
     ControlCapabilities,
     ControlDefinition,
     ControllerCapabilities,
+    ControlState,
     ControlType,
     ControlTypeModes,
 )
@@ -965,7 +966,8 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
     def translate_feedback(
         self,
         control_id: str,
-        state_dict: dict,
+        state: ControlState,
+        definition: ControlDefinition,
     ) -> list[mido.Message]:
         """
         Translate control state to RGB LED feedback.
@@ -978,7 +980,8 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
 
         Args:
             control_id: Control being updated
-            state_dict: New state (is_on, value, color, etc.)
+            state: Current control state (is_on, value, color, led_mode, etc.)
+            definition: Control definition (on_led_mode, off_led_mode, colors, capabilities)
 
         Returns:
             List of MIDI messages (SysEx for RGB LEDs)
@@ -1003,8 +1006,8 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
         rgb_values = list(self._current_led_colors)
 
         # Determine new color for this pad based on state
-        is_on = state_dict.get("is_on", False)
-        color = state_dict.get("color")
+        is_on = state.is_on or False
+        color = state.color
 
         if is_on and color:
             rgb_color = LPD8MK2RGBColor.from_string(color)
@@ -1026,7 +1029,7 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
 
     def translate_feedback_batch(
         self,
-        updates: list[tuple[str, dict]],
+        updates: list[tuple[str, ControlState, ControlDefinition]],
     ) -> BatchFeedbackResult:
         """
         Translate multiple control states to MIDI feedback in a single batch.
@@ -1038,14 +1041,14 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
         No timing delays are needed for this controller.
 
         Args:
-            updates: List of (control_id, state_dict) tuples to process.
+            updates: List of (control_id, state, definition) tuples to process.
 
         Returns:
             BatchFeedbackResult with single SysEx message for all pads.
         """
         # Filter to only pad updates and collect them
-        pad_updates: dict[int, dict] = {}
-        for control_id, state_dict in updates:
+        pad_updates: dict[int, ControlState] = {}
+        for control_id, state, _definition in updates:
             if not control_id.startswith("pad_"):
                 continue
 
@@ -1057,7 +1060,7 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
                 continue
 
             if 1 <= pad_num <= self.PAD_COUNT:
-                pad_updates[pad_num] = state_dict
+                pad_updates[pad_num] = state
 
         # If no pad updates, return empty result
         if not pad_updates:
@@ -1067,9 +1070,8 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
         rgb_values = list(self._current_led_colors)
 
         # Apply all updates
-        for pad_num, state_dict in pad_updates.items():
-            state_dict.get("is_on", False)
-            color = state_dict.get("color")
+        for pad_num, state in pad_updates.items():
+            color = state.color
 
             rgb_color = LPD8MK2RGBColor.from_string(color) if color else LPD8MK2RGBColor(r=0, g=0, b=0)
 

@@ -134,13 +134,13 @@ from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
     from padbound.config import BankConfig, ControllerConfig
-    from padbound.controls import ControlState
 
 from padbound.controls import (
     BankDefinition,
     ControlCapabilities,
     ControlDefinition,
     ControllerCapabilities,
+    ControlState,
     ControlType,
     ControlTypeModes,
 )
@@ -925,7 +925,8 @@ class XjamPlugin(ControllerPlugin):
     def translate_feedback(
         self,
         control_id: str,
-        state_dict: dict,
+        state: ControlState,
+        definition: ControlDefinition,
     ) -> list[mido.Message]:
         """
         Translate control state to LED feedback.
@@ -935,7 +936,8 @@ class XjamPlugin(ControllerPlugin):
 
         Args:
             control_id: Control being updated
-            state_dict: New state (is_on, value, color, etc.)
+            state: Current control state (is_on, value, color, led_mode, etc.)
+            definition: Control definition (on_led_mode, off_led_mode, colors, capabilities)
 
         Returns:
             Empty list (no feedback supported)
@@ -945,7 +947,7 @@ class XjamPlugin(ControllerPlugin):
 
     def translate_feedback_batch(
         self,
-        updates: list[tuple[str, dict]],
+        updates: list[tuple[str, ControlState, ControlDefinition]],
     ) -> BatchFeedbackResult:
         """
         Translate multiple control states to MIDI feedback in a batch.
@@ -954,7 +956,7 @@ class XjamPlugin(ControllerPlugin):
         manages its own LEDs. Returns empty result.
 
         Args:
-            updates: List of (control_id, state_dict) tuples to process.
+            updates: List of (control_id, state, definition) tuples to process.
 
         Returns:
             Empty BatchFeedbackResult (no feedback supported).

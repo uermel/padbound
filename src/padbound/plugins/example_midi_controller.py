@@ -107,6 +107,7 @@ from padbound.controls import (
     ControlCapabilities,
     ControlDefinition,
     ControllerCapabilities,
+    ControlState,
     ControlType,
     ControlTypeModes,
 )
@@ -558,7 +559,8 @@ class ExampleMIDIController(ControllerPlugin):
     def translate_feedback(
         self,
         control_id: str,
-        state_dict: dict,
+        state: ControlState,
+        definition: ControlDefinition,
     ) -> list[mido.Message]:
         """
         Translate control state to LED feedback.
@@ -570,7 +572,8 @@ class ExampleMIDIController(ControllerPlugin):
 
         Args:
             control_id: Control being updated (e.g., "pad_1@bank_1")
-            state_dict: New state (is_on, value, color, etc.)
+            state: Current control state (is_on, value, color, led_mode, etc.)
+            definition: Control definition (on_led_mode, off_led_mode, colors, capabilities)
 
         Returns:
             List of MIDI messages for LED control
@@ -592,8 +595,8 @@ class ExampleMIDIController(ControllerPlugin):
                 note = self.BANK2_PAD_START_NOTE + pad_num - 1
 
             # Determine color based on state
-            is_on = state_dict.get("is_on", False)
-            color = state_dict.get("color", "off")
+            is_on = state.is_on or False
+            color = state.color or "off"
 
             # Map color string to velocity value
             velocity = self.COLOR_PALETTE.get(color, 0)
@@ -617,7 +620,7 @@ class ExampleMIDIController(ControllerPlugin):
             else:
                 note = self.BANK2_BUTTON_SHIFT if button_name == "shift" else self.BANK2_BUTTON_SELECT
 
-            is_on = state_dict.get("is_on", False)
+            is_on = state.is_on or False
             velocity = 127 if is_on else 0
 
             msg = mido.Message("note_on", channel=self.MIDI_CHANNEL, note=note, velocity=velocity)
@@ -628,7 +631,7 @@ class ExampleMIDIController(ControllerPlugin):
 
     def translate_feedback_batch(
         self,
-        updates: list[tuple[str, dict]],
+        updates: list[tuple[str, ControlState, ControlDefinition]],
     ) -> BatchFeedbackResult:
         """
         Translate multiple control states to MIDI feedback in a batch.
@@ -640,12 +643,12 @@ class ExampleMIDIController(ControllerPlugin):
         No timing delays are needed for this controller.
 
         Args:
-            updates: List of (control_id, state_dict) tuples to process.
+            updates: List of (control_id, state, definition) tuples to process.
 
         Returns:
             BatchFeedbackResult with all messages, no custom delays.
         """
         messages = []
-        for control_id, state_dict in updates:
-            messages.extend(self.translate_feedback(control_id, state_dict))
+        for control_id, state, definition in updates:
+            messages.extend(self.translate_feedback(control_id, state, definition))
         return BatchFeedbackResult(messages=messages)

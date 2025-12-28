@@ -225,15 +225,19 @@ class Controller:
 
             # Only send feedback for controls with color support and configured colors
             if control.definition.capabilities.supports_feedback and control.definition.off_color is not None:
-                state_dict = {
-                    "is_on": False,
-                    "value": 0,
-                    "color": control.definition.off_color,
-                    "normalized_value": None,
-                    "led_mode": control.definition.off_led_mode,  # OFF state LED mode
-                    "definition_led_mode": control.definition.off_led_mode,  # Configured mode for OFF state
-                }
-                messages = self._plugin.translate_feedback(control.definition.control_id, state_dict)
+                initial_state = ControlState(
+                    control_id=control.definition.control_id,
+                    is_on=False,
+                    value=0,
+                    color=control.definition.off_color,
+                    normalized_value=None,
+                    led_mode=control.definition.off_led_mode,
+                )
+                messages = self._plugin.translate_feedback(
+                    control.definition.control_id,
+                    initial_state,
+                    control.definition,
+                )
                 for msg in messages:
                     self._send_message(msg)
                     # Add inter-message delay if device needs it (prevents buffer overflow)
@@ -481,13 +485,16 @@ class Controller:
 
         # All checks passed - translate to MIDI and send
         if self._plugin:
-            # Include definition LED mode for plugins that need it (e.g., APC mini MK2)
-            if "definition_led_mode" not in kwargs:
-                is_on = kwargs.get("is_on", False)
-                kwargs["definition_led_mode"] = (
-                    control.definition.on_led_mode if is_on else control.definition.off_led_mode
-                )
-            messages = self._plugin.translate_feedback(control_id, kwargs)
+            # Build a ControlState from kwargs for the plugin
+            feedback_state = ControlState(
+                control_id=control_id,
+                is_on=kwargs.get("is_on"),
+                value=kwargs.get("value"),
+                color=kwargs.get("color"),
+                normalized_value=kwargs.get("normalized_value"),
+                led_mode=kwargs.get("led_mode"),
+            )
+            messages = self._plugin.translate_feedback(control_id, feedback_state, control.definition)
             feedback_delay = self._state.capabilities.feedback_message_delay
             for msg in messages:
                 self._send_message(msg)
@@ -568,7 +575,7 @@ class Controller:
             return
 
         # Validate all controls first (fail fast)
-        validated_updates: list[tuple[str, dict]] = []
+        validated_updates: list[tuple[str, ControlState, ControlDefinition]] = []
         for control_id, kwargs in updates:
             control = self._state.get_control(control_id)
             if not control:
@@ -595,15 +602,17 @@ class Controller:
                 self._handle_unsupported_operation(f"Control '{control_id}' does not support value setting")
                 continue
 
-            # Add definition LED mode based on is_on state
-            state_dict = dict(kwargs)
-            if "definition_led_mode" not in state_dict:
-                is_on = state_dict.get("is_on", False)
-                state_dict["definition_led_mode"] = (
-                    control.definition.on_led_mode if is_on else control.definition.off_led_mode
-                )
+            # Build a ControlState from kwargs for the plugin
+            feedback_state = ControlState(
+                control_id=control_id,
+                is_on=kwargs.get("is_on"),
+                value=kwargs.get("value"),
+                color=kwargs.get("color"),
+                normalized_value=kwargs.get("normalized_value"),
+                led_mode=kwargs.get("led_mode"),
+            )
 
-            validated_updates.append((control_id, state_dict))
+            validated_updates.append((control_id, feedback_state, control.definition))
 
         if not validated_updates or not self._plugin:
             return
@@ -623,7 +632,7 @@ class Controller:
         # Update internal control states to match what we sent to hardware.
         # This ensures auto-feedback (triggered by physical pad press) uses
         # the correct color/led_mode instead of stale default values.
-        for control_id, state_dict in validated_updates:
+        for control_id, feedback_state, _ in validated_updates:
             control = self._state.get_control(control_id)
             if control:
                 current_state = control._state
@@ -631,11 +640,11 @@ class Controller:
                     control_id=control_id,
                     is_discovered=current_state.is_discovered,
                     first_discovered_at=current_state.first_discovered_at,
-                    value=state_dict.get("value", current_state.value),
+                    value=feedback_state.value if feedback_state.value is not None else current_state.value,
                     normalized_value=current_state.normalized_value,
-                    is_on=state_dict.get("is_on", current_state.is_on),
-                    color=state_dict.get("color", current_state.color),
-                    led_mode=state_dict.get("led_mode", current_state.led_mode),
+                    is_on=feedback_state.is_on if feedback_state.is_on is not None else current_state.is_on,
+                    color=feedback_state.color if feedback_state.color is not None else current_state.color,
+                    led_mode=feedback_state.led_mode if feedback_state.led_mode is not None else current_state.led_mode,
                 )
                 self._state.set_control_state(control_id, new_state)
 
@@ -880,21 +889,23 @@ class Controller:
                 continue
 
             # Determine color based on current state
-            state = control.state
-            color = control.definition.on_color if state.is_on else control.definition.off_color
+            current_state = control.state
+            color = control.definition.on_color if current_state.is_on else control.definition.off_color
 
             if not color:
                 continue
 
-            # Build state dict and send feedback
-            state_dict = {
-                "is_on": state.is_on if state.is_on is not None else False,
-                "value": state.value if state.value is not None else 0,
-                "color": color,
-                "normalized_value": state.normalized_value,
-            }
+            # Build feedback state with the appropriate color
+            feedback_state = ControlState(
+                control_id=control_def.control_id,
+                is_on=current_state.is_on if current_state.is_on is not None else False,
+                value=current_state.value if current_state.value is not None else 0,
+                color=color,
+                normalized_value=current_state.normalized_value,
+                led_mode=current_state.led_mode,
+            )
 
-            messages = self._plugin.translate_feedback(control_def.control_id, state_dict)
+            messages = self._plugin.translate_feedback(control_def.control_id, feedback_state, control.definition)
             for msg in messages:
                 self._send_message(msg)
 
@@ -966,20 +977,8 @@ class Controller:
                 f"Auto-feedback check for {control_id}: requires_feedback={control.definition.capabilities.requires_feedback}",
             )
             if control.definition.capabilities.requires_feedback:
-                # Convert ControlState to dict for translate_feedback
-                # definition_led_mode is based on is_on state (on_led_mode or off_led_mode)
-                definition_led_mode = (
-                    control.definition.on_led_mode if new_state.is_on else control.definition.off_led_mode
-                )
-                state_dict = {
-                    "is_on": new_state.is_on,
-                    "value": new_state.value,
-                    "color": new_state.color,
-                    "normalized_value": new_state.normalized_value,
-                    "led_mode": new_state.led_mode,
-                    "definition_led_mode": definition_led_mode,
-                }
-                messages = self._plugin.translate_feedback(control_id, state_dict)
+                # Pass the new state and definition directly to the plugin
+                messages = self._plugin.translate_feedback(control_id, new_state, control.definition)
                 feedback_delay = self._state.capabilities.feedback_message_delay
                 for feedback_msg in messages:
                     self._send_message(feedback_msg)

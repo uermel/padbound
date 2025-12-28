@@ -712,7 +712,12 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
 
         return (None, True)  # Use default behavior for MOMENTARY pads and other controls
 
-    def translate_feedback(self, control_id: str, state_dict: dict) -> list[mido.Message]:
+    def translate_feedback(
+        self,
+        control_id: str,
+        state: ControlState,
+        definition: ControlDefinition,
+    ) -> list[mido.Message]:
         """
         Translate control state to MIDI feedback messages.
 
@@ -723,13 +728,14 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
 
         Args:
             control_id: Control identifier (e.g., "pad_1@layer_a")
-            state_dict: State dictionary (is_on, value, etc.)
+            state: Current control state (is_on, value, color, led_mode, etc.)
+            definition: Control definition (on_led_mode, off_led_mode, colors, capabilities)
 
         Returns:
             List of MIDI messages to send
         """
         messages = []
-        is_on = state_dict.get("is_on", False)
+        is_on = state.is_on or False
 
         # Handle pads
         if "pad_" in control_id and "button" not in control_id:
@@ -759,7 +765,7 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
 
         # Handle knobs (CC for value - used during init)
         elif "knob_" in control_id and "button" not in control_id:
-            value = state_dict.get("value", 64) or 64
+            value = state.value if state.value is not None else 64
             cc = self._get_feedback_cc(control_id)
             if cc is not None:
                 msg = mido.Message("control_change", channel=MIDI_CHANNEL, control=cc, value=value)
@@ -769,7 +775,7 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
 
     def translate_feedback_batch(
         self,
-        updates: list[tuple[str, dict]],
+        updates: list[tuple[str, ControlState, ControlDefinition]],
     ) -> BatchFeedbackResult:
         """
         Translate multiple control states to MIDI feedback in a batch.
@@ -781,14 +787,14 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
         No timing delays are needed for this controller.
 
         Args:
-            updates: List of (control_id, state_dict) tuples to process.
+            updates: List of (control_id, state, definition) tuples to process.
 
         Returns:
             BatchFeedbackResult with all messages, no custom delays.
         """
         messages = []
-        for control_id, state_dict in updates:
-            messages.extend(self.translate_feedback(control_id, state_dict))
+        for control_id, state, definition in updates:
+            messages.extend(self.translate_feedback(control_id, state, definition))
         return BatchFeedbackResult(messages=messages)
 
     def _get_feedback_note(self, control_id: str) -> Optional[int]:

@@ -533,7 +533,8 @@ class PreSonusAtomPlugin(ControllerPlugin):
     def translate_feedback(
         self,
         control_id: str,
-        state_dict: dict,
+        state: ControlState,
+        definition: ControlDefinition,
     ) -> list[mido.Message]:
         """
         Translate control state to LED feedback.
@@ -545,7 +546,8 @@ class PreSonusAtomPlugin(ControllerPlugin):
 
         Args:
             control_id: Control being updated
-            state_dict: New state (is_on, value, color, etc.)
+            state: Current control state (is_on, value, color, led_mode, etc.)
+            definition: Control definition (on_led_mode, off_led_mode, colors, capabilities)
 
         Returns:
             List of MIDI messages for LED control
@@ -567,9 +569,13 @@ class PreSonusAtomPlugin(ControllerPlugin):
             pad_note = self.PAD_START_NOTE + pad_num - 1
 
             # Determine LED state and color
-            is_on = state_dict.get("is_on", False)
-            color_str = state_dict.get("color", "off")
-            led_mode = state_dict.get("led_mode", "solid")
+            is_on = state.is_on or False
+            color_str = state.color or "off"
+            # Compute definition_led_mode from definition based on is_on state
+            definition_led_mode = definition.on_led_mode if is_on else definition.off_led_mode
+            # Use state's led_mode if set, otherwise fall back to definition's
+            led_mode = state.led_mode or definition_led_mode
+            led_mode_str = led_mode.animation_type.value if led_mode else "solid"
 
             # Parse color
             rgb_color = AtomRGBColor.from_string(color_str)
@@ -581,7 +587,7 @@ class PreSonusAtomPlugin(ControllerPlugin):
                     "pulse": self.LED_BREATHE,  # 2
                     "blink": self.LED_BLINK,  # 1
                 }
-                led_state_value = led_state_map.get(led_mode, self.LED_SOLID)
+                led_state_value = led_state_map.get(led_mode_str, self.LED_SOLID)
             else:
                 # OFF state always uses solid (dim color shown steadily)
                 led_state_value = self.LED_SOLID
@@ -599,7 +605,7 @@ class PreSonusAtomPlugin(ControllerPlugin):
                 return []  # No LED for this button
 
             cc = self.BUTTON_CCS[control_id]
-            is_on = state_dict.get("is_on", False)
+            is_on = state.is_on or False
             value = 127 if is_on else 0
 
             msg = mido.Message("control_change", channel=0, control=cc, value=value)
@@ -610,7 +616,7 @@ class PreSonusAtomPlugin(ControllerPlugin):
 
     def translate_feedback_batch(
         self,
-        updates: list[tuple[str, dict]],
+        updates: list[tuple[str, ControlState, ControlDefinition]],
     ) -> BatchFeedbackResult:
         """
         Translate multiple control states to MIDI feedback in a batch.
@@ -622,14 +628,14 @@ class PreSonusAtomPlugin(ControllerPlugin):
         No timing delays are needed for this controller.
 
         Args:
-            updates: List of (control_id, state_dict) tuples to process.
+            updates: List of (control_id, state, definition) tuples to process.
 
         Returns:
             BatchFeedbackResult with all messages, no custom delays.
         """
         messages = []
-        for control_id, state_dict in updates:
-            messages.extend(self.translate_feedback(control_id, state_dict))
+        for control_id, state, definition in updates:
+            messages.extend(self.translate_feedback(control_id, state, definition))
         return BatchFeedbackResult(messages=messages)
 
     def translate_input(self, msg: mido.Message) -> Optional[tuple[str, int, str]]:
