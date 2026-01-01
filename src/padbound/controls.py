@@ -215,6 +215,33 @@ class ControlState(BaseModel):
     model_config = {"frozen": True}  # Immutability
 
 
+class StateUpdate(BaseModel):
+    """
+    State update for programmatic control feedback.
+
+    Use this model to specify what state values to set when calling
+    Controller.set_state() or Controller.set_states().
+
+    All fields are optional - only specified fields will be updated.
+
+    Example:
+        # Set a pad to on with red color
+        controller.set_state('pad_1', StateUpdate(is_on=True, color='red'))
+
+        # Batch update multiple pads
+        controller.set_states([
+            ('pad_1', StateUpdate(is_on=True, color='red')),
+            ('pad_2', StateUpdate(is_on=False, color='blue')),
+        ])
+    """
+
+    is_on: Optional[bool] = None
+    value: Optional[int] = None
+    color: Optional[str] = None
+    normalized_value: Optional[float] = None
+    led_mode: Optional[LEDMode] = None
+
+
 class CapabilityError(Exception):
     """
     Raised when attempting an operation unsupported by the controller's capabilities.
@@ -255,6 +282,25 @@ class Control(ABC):
         """Get current state (thread-safe)."""
         with self._lock:
             return self._state
+
+    def update_definition(self, **kwargs) -> None:
+        """
+        Update control definition properties at runtime.
+
+        Thread-safe: uses the same lock as update_from_midi().
+
+        Useful for dynamically updating colors and LED modes without
+        recreating the Control object.
+
+        Args:
+            **kwargs: Definition fields to update. Common fields:
+                     - on_color: Color when control is ON/active
+                     - off_color: Color when control is OFF/inactive
+                     - on_led_mode: LEDMode when control is ON
+                     - off_led_mode: LEDMode when control is OFF
+        """
+        with self._lock:
+            self._definition = self._definition.model_copy(update=kwargs)
 
     def update_from_midi(self, value: int, **kwargs) -> ControlState:
         """

@@ -28,6 +28,7 @@ from padbound.controls import (
     ControlState,
     ControlType,
     ControlTypeModes,
+    StateUpdate,
 )
 
 # Logging configuration
@@ -53,6 +54,7 @@ __all__ = [
     "ControlType",
     # State and definitions
     "ControlState",
+    "StateUpdate",
     "ControlDefinition",
     "ControlCapabilities",
     "ControllerCapabilities",

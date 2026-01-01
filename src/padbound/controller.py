@@ -22,6 +22,7 @@ from padbound.controls import (
     ControlType,
     LEDAnimationType,
     MomentaryControl,
+    StateUpdate,
     ToggleControl,
 )
 from padbound.logging_config import get_logger
@@ -314,28 +315,38 @@ class Controller:
         self._connected = False
         logger.info("Controller disconnected")
 
-    def reconfigure(self, config: Optional["ControllerConfig"] = None) -> None:
+    def reconfigure(
+        self,
+        config: Optional["ControllerConfig"] = None,
+        update_in_memory_only: bool = False,
+    ) -> None:
         """
-        Reprogram device memory with new configuration (if supported).
+        Update control configuration at runtime.
 
-        Updates persistent configuration in device memory. Configuration changes
-        persist across program switches and potentially power cycles.
+        This method:
+        1. Always updates in-memory ControlDefinitions (colors, LED modes)
+        2. Optionally programs device memory if supports_persistent_configuration
+           and update_in_memory_only=False
 
         Useful for:
-        - Changing color schemes at runtime
+        - Changing color schemes at runtime (e.g., napari label colors)
         - Switching control types (toggle ↔ momentary)
         - Adjusting MIDI channels
         - Modifying knob ranges
 
         Args:
-            config: New configuration, or None to reprogram current config
+            config: New configuration, or None to re-apply current config
+            update_in_memory_only: If True, only update in-memory definitions
+                                   without programming device memory. Useful for
+                                   frequent updates (e.g., napari label color changes).
+                                   If False (default), also programs device memory
+                                   when supports_persistent_configuration is True.
 
         Raises:
             RuntimeError: If not connected
-            NotImplementedError: If plugin doesn't support persistent configuration
 
         Example:
-            # Change all pad colors to blue
+            # Change all pad colors to blue (with device programming if supported)
             new_config = ControllerConfig(banks={
                 "bank_1": BankConfig(controls={
                     f"pad_{i}": ControlConfig(color="blue")
@@ -343,21 +354,16 @@ class Controller:
                 })
             })
             controller.reconfigure(new_config)
+
+            # Quick in-memory update (no device programming)
+            controller.reconfigure(label_config, update_in_memory_only=True)
         """
-
         self._ensure_connected()
-
-        if not self._state.capabilities.supports_persistent_configuration:
-            raise NotImplementedError(f"Plugin '{self._plugin.name}' does not support persistent configuration")
 
         # Use provided config or current config
         if config:
-            # TODO: Consider validating and merging with current config
-            # For now, replace entirely
             self._controller_config = config
-
-            # TODO: If control types changed, may need to rebuild Control objects
-            # For initial implementation, focus on colors
+            self._config_resolver = ControlConfigResolver(config)
 
         config_to_use = config or self._controller_config
 
@@ -365,11 +371,15 @@ class Controller:
             logger.warning("No configuration available to program")
             return
 
-        # Reprogram device
-        logger.info("Reprogramming device with new configuration")
-        self._plugin.configure_programs(self._send_message, config_to_use)
+        # Step 1: Update in-memory control definitions
+        self._update_control_definitions_from_config()
 
-        logger.info("Device reconfiguration complete")
+        # Step 2: Program device memory (if supported and requested)
+        if not update_in_memory_only and self._state.capabilities.supports_persistent_configuration:
+            logger.info("Reprogramming device with new configuration")
+            self._plugin.configure_programs(self._send_message, config_to_use)
+
+        logger.info("Reconfiguration complete")
 
     # State query methods
 
@@ -430,7 +440,7 @@ class Controller:
 
     # Programmatic state control
 
-    def set_state(self, control_id: str, **kwargs) -> None:
+    def set_state(self, control_id: str, update: StateUpdate) -> None:
         """
         Set control state programmatically (sends hardware feedback).
 
@@ -440,15 +450,15 @@ class Controller:
 
         Args:
             control_id: Control identifier
-            **kwargs: State parameters (is_on, value, color, etc.)
+            update: StateUpdate with values to set
 
         Raises:
             ValueError: If control not found
             CapabilityError: If operation unsupported (strict mode only)
 
         Example:
-            controller.set_state('pad_1', is_on=True, color='red')
-            controller.set_state('fader_1', value=64)
+            controller.set_state('pad_1', StateUpdate(is_on=True, color='red'))
+            controller.set_state('fader_1', StateUpdate(value=64))
         """
         self._ensure_connected()
 
@@ -465,34 +475,33 @@ class Controller:
             return
 
         # Validate specific operations
-        if "value" in kwargs and not capabilities.supports_value_setting:
+        if update.value is not None and not capabilities.supports_value_setting:
             self._handle_unsupported_operation(f"Control '{control_id}' does not support value setting (not motorized)")
             return
 
-        if "color" in kwargs:
+        if update.color is not None:
             if not capabilities.supports_color:
                 self._handle_unsupported_operation(f"Control '{control_id}' does not support color")
                 return
 
             # Validate color against palette
-            if not self._state.validate_color(control_id, kwargs["color"]):
-                color = kwargs["color"]
+            if not self._state.validate_color(control_id, update.color):
                 palette = capabilities.color_palette
                 self._handle_unsupported_operation(
-                    f"Color '{color}' not in palette {palette} for control '{control_id}'",
+                    f"Color '{update.color}' not in palette {palette} for control '{control_id}'",
                 )
                 return
 
         # All checks passed - translate to MIDI and send
         if self._plugin:
-            # Build a ControlState from kwargs for the plugin
+            # Build a ControlState from update for the plugin
             feedback_state = ControlState(
                 control_id=control_id,
-                is_on=kwargs.get("is_on"),
-                value=kwargs.get("value"),
-                color=kwargs.get("color"),
-                normalized_value=kwargs.get("normalized_value"),
-                led_mode=kwargs.get("led_mode"),
+                is_on=update.is_on,
+                value=update.value,
+                color=update.color,
+                normalized_value=update.normalized_value,
+                led_mode=update.led_mode,
             )
             messages = self._plugin.translate_feedback(control_id, feedback_state, control.definition)
             feedback_delay = self._state.capabilities.feedback_message_delay
@@ -502,7 +511,7 @@ class Controller:
                 if feedback_delay > 0:
                     time.sleep(feedback_delay)
 
-    def can_set_state(self, control_id: str, **kwargs) -> bool:
+    def can_set_state(self, control_id: str, update: StateUpdate) -> bool:
         """
         Check if set_state() would succeed.
 
@@ -511,7 +520,7 @@ class Controller:
 
         Args:
             control_id: Control identifier
-            **kwargs: State parameters to check
+            update: StateUpdate to check
 
         Returns:
             True if operation supported, False otherwise
@@ -529,13 +538,13 @@ class Controller:
             if not capabilities.supports_feedback:
                 return False
 
-            if "value" in kwargs and not capabilities.supports_value_setting:
+            if update.value is not None and not capabilities.supports_value_setting:
                 return False
 
-            if "color" in kwargs:
+            if update.color is not None:
                 if not capabilities.supports_color:
                     return False
-                if not self._state.validate_color(control_id, kwargs["color"]):
+                if not self._state.validate_color(control_id, update.color):
                     return False
 
             return True
@@ -545,7 +554,7 @@ class Controller:
 
     def set_states(
         self,
-        updates: list[tuple[str, dict]],
+        updates: list[tuple[str, StateUpdate]],
     ) -> None:
         """
         Set multiple control states in a batch (sends hardware feedback).
@@ -555,8 +564,7 @@ class Controller:
         translate_feedback_batch() method.
 
         Args:
-            updates: List of (control_id, state_dict) tuples.
-                     Each state_dict can contain: is_on, color, led_mode, value
+            updates: List of (control_id, StateUpdate) tuples.
 
         Raises:
             RuntimeError: If not connected
@@ -565,8 +573,8 @@ class Controller:
 
         Example:
             controller.set_states([
-                ('pad_1', {'is_on': True, 'color': 'red', 'led_mode': 'pulse'}),
-                ('pad_2', {'is_on': True, 'color': 'blue', 'led_mode': 'solid'}),
+                ('pad_1', StateUpdate(is_on=True, color='red', led_mode=LEDMode(...))),
+                ('pad_2', StateUpdate(is_on=True, color='blue')),
             ])
         """
         self._ensure_connected()
@@ -576,7 +584,7 @@ class Controller:
 
         # Validate all controls first (fail fast)
         validated_updates: list[tuple[str, ControlState, ControlDefinition]] = []
-        for control_id, kwargs in updates:
+        for control_id, update in updates:
             control = self._state.get_control(control_id)
             if not control:
                 raise ValueError(f"Unknown control: {control_id}")
@@ -589,27 +597,27 @@ class Controller:
                 continue
 
             # Validate color
-            if "color" in kwargs:
+            if update.color is not None:
                 if not capabilities.supports_color:
                     self._handle_unsupported_operation(f"Control '{control_id}' does not support color")
                     continue
-                if not self._state.validate_color(control_id, kwargs["color"]):
-                    self._handle_unsupported_operation(f"Color '{kwargs['color']}' not valid for '{control_id}'")
+                if not self._state.validate_color(control_id, update.color):
+                    self._handle_unsupported_operation(f"Color '{update.color}' not valid for '{control_id}'")
                     continue
 
             # Validate value setting
-            if "value" in kwargs and not capabilities.supports_value_setting:
+            if update.value is not None and not capabilities.supports_value_setting:
                 self._handle_unsupported_operation(f"Control '{control_id}' does not support value setting")
                 continue
 
-            # Build a ControlState from kwargs for the plugin
+            # Build a ControlState from update for the plugin
             feedback_state = ControlState(
                 control_id=control_id,
-                is_on=kwargs.get("is_on"),
-                value=kwargs.get("value"),
-                color=kwargs.get("color"),
-                normalized_value=kwargs.get("normalized_value"),
-                led_mode=kwargs.get("led_mode"),
+                is_on=update.is_on,
+                value=update.value,
+                color=update.color,
+                normalized_value=update.normalized_value,
+                led_mode=update.led_mode,
             )
 
             validated_updates.append((control_id, feedback_state, control.definition))
@@ -857,6 +865,36 @@ class Controller:
 
         return control
 
+    def _update_control_definitions_from_config(self) -> None:
+        """
+        Re-resolve configuration and update all control definitions.
+
+        Called by reconfigure() to update in-memory ControlDefinitions
+        when configuration changes. This ensures that toggle behavior
+        uses the correct colors/LED modes.
+        """
+        if not self._plugin:
+            return
+
+        for control_def in self._plugin.get_control_definitions():
+            control = self._state.get_control(control_def.control_id)
+            if not control:
+                continue
+
+            # Re-resolve configuration for this control
+            actual_type, on_color, off_color, on_led_mode, off_led_mode = self._config_resolver.resolve_config(
+                control_def.control_id,
+                control_def,
+            )
+
+            # Update the control's definition with new colors/LED modes
+            control.update_definition(
+                on_color=on_color,
+                off_color=off_color,
+                on_led_mode=on_led_mode,
+                off_led_mode=off_led_mode,
+            )
+
     def _send_message(self, msg: mido.Message) -> None:
         """Send MIDI message (internal)."""
         if self._midi:
@@ -976,7 +1014,7 @@ class Controller:
             logger.debug(
                 f"Auto-feedback check for {control_id}: requires_feedback={control.definition.capabilities.requires_feedback}",
             )
-            if control.definition.capabilities.requires_feedback:
+            if control.definition.capabilities.requires_feedback and trigger_callback:
                 # Pass the new state and definition directly to the plugin
                 messages = self._plugin.translate_feedback(control_id, new_state, control.definition)
                 feedback_delay = self._state.capabilities.feedback_message_delay
