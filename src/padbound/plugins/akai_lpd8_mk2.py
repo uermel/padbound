@@ -251,6 +251,8 @@ from padbound.controls import (
     ControlState,
     ControlType,
     ControlTypeModes,
+    LEDAnimationType,
+    LEDMode,
 )
 from padbound.logging_config import get_logger
 from padbound.plugin import (
@@ -514,6 +516,7 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
                     ControlDefinition(
                         control_id=f"pad_{pad_num}@{bank_id}",
                         control_type=ControlType.TOGGLE,  # Default to TOGGLE
+                        category="pad",
                         type_modes=ControlTypeModes(
                             supported_types=[ControlType.TOGGLE, ControlType.MOMENTARY],
                             default_type=ControlType.TOGGLE,
@@ -525,6 +528,7 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
                             supports_led=True,
                             supports_color=True,
                             color_mode="rgb",
+                            supported_led_modes=[LEDMode(animation_type=LEDAnimationType.SOLID)],
                             requires_discovery=False,  # Pads report state immediately
                         ),
                         bank_id=bank_id,
@@ -539,6 +543,7 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
                     ControlDefinition(
                         control_id=f"knob_{knob_num}@{bank_id}",
                         control_type=ControlType.CONTINUOUS,
+                        category="knob",
                         capabilities=ControlCapabilities(
                             supports_feedback=False,  # Knobs are read-only (not motorized)
                             requires_discovery=True,  # Initial position unknown
