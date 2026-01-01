@@ -919,12 +919,18 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
         This method is called after init() to write actual config values, allowing
         init() to focus on hardware setup (clearing, resetting).
 
+        Supports both bank-aware configs (config.banks["bank_1"].controls["pad_1"])
+        and flat configs (config.controls["pad_1@bank_1"]).
+
         Args:
             send_message: Function to send MIDI messages
             config: Full controller configuration with resolved settings
         """
 
-        if not config or not config.banks:
+        # Allow both bank-aware and flat configs
+        has_bank_config = config and config.banks
+        has_flat_config = config and config.controls
+        if not has_bank_config and not has_flat_config:
             logger.debug("No configuration provided, using defaults")
             return
 
@@ -935,7 +941,7 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
             bank_id = f"bank_{program_num}"
             channel = self.BANK_CHANNELS[bank_id]
 
-            # Get bank config if available
+            # Get bank config if available (for bank-aware configs)
             bank_config = config.banks.get(bank_id) if config.banks else None
 
             # Log what we're configuring
@@ -943,9 +949,19 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
                 color_count = sum(
                     1
                     for ctrl_id, ctrl_cfg in bank_config.controls.items()
-                    if ctrl_id.startswith("pad_") and ctrl_cfg.color
+                    if ctrl_id.startswith("pad_") and ctrl_cfg.on_color
                 )
                 logger.info(f"Configuring Program {program_num}: channel {channel + 1}, {color_count} pad colors")
+            elif has_flat_config:
+                # Count colors in flat config for this bank
+                color_count = sum(
+                    1
+                    for ctrl_id, ctrl_cfg in config.controls.items()
+                    if ctrl_id.startswith("pad_") and ctrl_id.endswith(f"@{bank_id}") and ctrl_cfg.on_color
+                )
+                logger.info(
+                    f"Configuring Program {program_num}: channel {channel + 1}, {color_count} pad colors (flat config)",
+                )
             else:
                 logger.info(f"Configuring Program {program_num}: channel {channel + 1} (defaults)")
 
@@ -954,6 +970,7 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
                 program_num=program_num,
                 channel=channel,
                 bank_config=bank_config,
+                full_config=config,
             )
             send_message(program_sysex)
 
@@ -964,7 +981,7 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
         # (otherwise user has to switch programs for changes to be visible)
         if self._last_active_bank:
             active_bank_config = config.banks.get(self._last_active_bank) if config.banks else None
-            self._apply_led_colors_directly(send_message, active_bank_config)
+            self._apply_led_colors_directly(send_message, active_bank_config, config)
 
         logger.info("LPD8 MK2 program configuration complete")
 
@@ -1106,6 +1123,8 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
     def _get_pad_colors_for_bank(
         self,
         bank_config: Optional["BankConfig"],
+        full_config: Optional["ControllerConfig"] = None,
+        bank_id: Optional[str] = None,
     ) -> list[tuple[LPD8MK2RGBColor, LPD8MK2RGBColor]]:
         """
         Extract 8 pad colors from bank config with defaults.
@@ -1116,8 +1135,13 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
         - Derive OFF color (black by default, per user requirement)
         - Return as LPD8MK2RGBColor objects (0-255 range)
 
+        Supports both bank-aware configs (config.banks["bank_1"].controls["pad_1"])
+        and flat configs (config.controls["pad_1@bank_1"]).
+
         Args:
             bank_config: Bank configuration, or None for defaults
+            full_config: Full controller config for flat config fallback
+            bank_id: Bank ID for flat config lookup (e.g., "bank_1")
 
         Returns:
             List of 8 (off_color, on_color) tuples as LPD8MK2RGBColor objects
@@ -1132,14 +1156,21 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
             on_color = LPD8MK2RGBColor(r=0, g=128, b=255)  # Bright blue (ON state)
 
             # Extract colors from config if available
+            # Try bank-aware config first, then fall back to flat config
+            control_config = None
             if bank_config and bank_config.controls:
                 control_config = bank_config.controls.get(pad_id)
-                if control_config and control_config.on_color:
-                    # Parse ON color from config
-                    on_color = LPD8MK2RGBColor.from_string(control_config.on_color)
+            elif full_config and full_config.controls and bank_id:
+                # Flat config: look up "pad_N@bank_id" directly
+                full_control_id = f"{pad_id}@{bank_id}"
+                control_config = full_config.controls.get(full_control_id)
 
-                    # OFF color: use dimmed version of ON color (25% brightness)
-                    off_color = LPD8MK2RGBColor(r=on_color.r // 4, g=on_color.g // 4, b=on_color.b // 4)
+            if control_config and control_config.on_color:
+                # Parse ON color from config
+                on_color = LPD8MK2RGBColor.from_string(control_config.on_color)
+
+                # OFF color: use dimmed version of ON color (25% brightness)
+                off_color = LPD8MK2RGBColor(r=on_color.r // 4, g=on_color.g // 4, b=on_color.b // 4)
 
             colors.append((off_color, on_color))
 
@@ -1169,6 +1200,7 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
         self,
         send_message: Callable[[mido.Message], None],
         bank_config: Optional["BankConfig"],
+        full_config: Optional["ControllerConfig"] = None,
     ) -> None:
         """
         Send direct LED update to immediately show colors for a bank.
@@ -1179,9 +1211,10 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
         Args:
             send_message: Function to send MIDI messages
             bank_config: Bank configuration to get colors from
+            full_config: Full controller config for flat config fallback
         """
         # Get pad colors (off_color, on_color tuples)
-        pad_colors = self._get_pad_colors_for_bank(bank_config)
+        pad_colors = self._get_pad_colors_for_bank(bank_config, full_config, self._last_active_bank)
 
         # Use OFF colors since pads start in off state
         off_colors = [off_color for off_color, on_color in pad_colors]
@@ -1248,6 +1281,7 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
         program_num: int,
         channel: int,
         bank_config: Optional["BankConfig"] = None,
+        full_config: Optional["ControllerConfig"] = None,
     ) -> mido.Message:
         """
         Build SysEx message to configure a program using Pydantic models.
@@ -1259,12 +1293,14 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
             program_num: Program number (1-4)
             channel: MIDI channel (0-15, where 0 = channel 1)
             bank_config: Optional bank configuration to extract colors and settings from
+            full_config: Full controller config for flat config fallback
 
         Returns:
             SysEx message
         """
         # Extract colors and settings from config
-        pad_colors = self._get_pad_colors_for_bank(bank_config)
+        bank_id = f"bank_{program_num}"
+        pad_colors = self._get_pad_colors_for_bank(bank_config, full_config, bank_id)
         toggle_mode = self._get_control_types_for_bank(bank_config)
 
         # Build pad configs
