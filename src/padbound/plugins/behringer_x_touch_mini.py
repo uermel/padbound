@@ -66,6 +66,8 @@ from padbound.controls import (
     ControlState,
     ControlType,
     ControlTypeModes,
+    LEDAnimationType,
+    LEDMode,
 )
 from padbound.logging_config import get_logger
 from padbound.plugin import (
@@ -232,6 +234,7 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
                             supports_feedback=True,
                             requires_feedback=True,  # Library must send LED updates
                             supports_led=True,
+                            supported_led_modes=[LEDMode(animation_type=LEDAnimationType.SOLID)],
                             requires_discovery=False,
                         ),
                         bank_id=layer,
