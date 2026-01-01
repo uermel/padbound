@@ -828,6 +828,9 @@ class XjamPlugin(ControllerPlugin):
         Writes user configuration (toggle mode, control settings) to
         device non-volatile memory via SysEx.
 
+        Optimized: If only toggle_mode is being changed (empty controls dicts),
+        skips full pad/knob reconfiguration for much faster updates.
+
         Args:
             send_message: Function to send MIDI messages
             config: Full controller configuration with resolved settings
@@ -837,6 +840,28 @@ class XjamPlugin(ControllerPlugin):
             logger.debug("No configuration provided, using defaults")
             return
 
+        # Determine global toggle mode from config
+        # Since it's global, we take the setting from any bank that has it defined
+        toggle_mode: bool | None = None
+        for bank_id, bank_config in config.banks.items():
+            if bank_config.toggle_mode is not None:
+                toggle_mode = bank_config.toggle_mode
+                logger.info(f"Using toggle_mode={toggle_mode} from {bank_id} (applies globally)")
+                break
+
+        # Check if this is a toggle_mode-only change (all controls dicts are empty)
+        # This allows for a fast path that skips pad/knob reconfiguration
+        toggle_mode_only = toggle_mode is not None and all(
+            not bank_config.controls for bank_config in config.banks.values()
+        )
+
+        if toggle_mode_only:
+            # Fast path: only change toggle mode setting
+            logger.info(f"Fast path: setting toggle_mode={toggle_mode} only")
+            self._set_toggle_mode_only(send_message, toggle_mode)
+            return
+
+        # Full configuration path
         logger.info("Programming Xjam device memory with configuration")
 
         # Enter config mode
@@ -845,14 +870,9 @@ class XjamPlugin(ControllerPlugin):
             send_message(msg)
             time.sleep(0.05)
 
-        # Determine global toggle mode from config
-        # Since it's global, we take the setting from any bank that has it defined
-        toggle_mode = True  # Default
-        for bank_id, bank_config in config.banks.items():
-            if bank_config.toggle_mode is not None:
-                toggle_mode = bank_config.toggle_mode
-                logger.info(f"Using toggle_mode={toggle_mode} from {bank_id} (applies globally)")
-                break
+        # Use default toggle mode if not specified
+        if toggle_mode is None:
+            toggle_mode = True
 
         # Configure pads for each bank
         for bank_idx in range(self.BANK_COUNT):
@@ -921,6 +941,46 @@ class XjamPlugin(ControllerPlugin):
             time.sleep(0.05)
 
         logger.info("Xjam program configuration complete")
+
+    def _set_toggle_mode_only(self, send_message: Callable[[mido.Message], None], toggle_mode: bool) -> None:
+        """
+        Fast path to set only the toggle mode without reconfiguring pads/knobs.
+
+        This is much faster than full configure_programs() when only the
+        toggle/momentary mode needs to change.
+
+        Args:
+            send_message: Function to send MIDI messages
+            toggle_mode: True for toggle mode, False for momentary mode
+        """
+        # Enter config mode
+        config_mode = XjamConfigMode(enter=True)
+        for msg in config_mode.to_sysex_messages():
+            send_message(msg)
+            time.sleep(0.03)  # Reduced delay
+
+        # Set only toggle mode (skip aftertouch since we're not changing it)
+        data = XjamSysEx.HEADER + [
+            XjamSysEx.CMD_WRITE,
+            XjamSysEx.ELEMENT_TOGGLE,
+            XjamSysEx.TYPE_BOOL,
+            0x01 if toggle_mode else 0x00,
+        ]
+        send_message(mido.Message("sysex", data=data))
+        time.sleep(0.02)
+
+        # Commit
+        commit = XjamGlobalCommit()
+        send_message(commit.to_sysex_message())
+        time.sleep(0.05)  # Reduced delay
+
+        # Exit config mode
+        config_mode = XjamConfigMode(enter=False)
+        for msg in config_mode.to_sysex_messages():
+            send_message(msg)
+            time.sleep(0.03)  # Reduced delay
+
+        logger.info(f"Toggle mode set to {'TOGGLE' if toggle_mode else 'MOMENTARY'}")
 
     def translate_feedback(
         self,
