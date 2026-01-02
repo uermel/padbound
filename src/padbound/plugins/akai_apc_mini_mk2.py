@@ -1239,9 +1239,6 @@ class AkaiAPCminiMK2Plugin(ControllerPlugin):
         current_state: ControlState,
         control_definition: ControlDefinition,
     ) -> Tuple[Optional[ControlState], bool]:
-        # pprint.pprint(control_definition.model_dump())
-        # pprint.pprint(current_state.model_dump())
-
         if "pad_" in control_id:
             if control_definition.control_type == ControlType.MOMENTARY:
                 on_state = value == 127
