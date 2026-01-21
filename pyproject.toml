@@ -15,7 +15,7 @@ dependencies = [
     "pydantic>=2.12.5",
     "python-rtmidi>=1.5.8",
     "rich>=13.0.0",
-    "textual==5.3.0",
+    "textual==7.3.0",
 ]
 authors = [
     { name = "Utz H. Ermel", email = "utz@ermel.me" },
