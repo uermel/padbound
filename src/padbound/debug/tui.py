@@ -8,6 +8,7 @@ with debug_server enabled.
 
 import argparse
 import asyncio
+import re
 from typing import Optional
 
 from pydantic import TypeAdapter
@@ -74,10 +75,15 @@ class PadWidget(Static):
     def _update_style(self) -> None:
         """Update widget style based on state.
 
-        The color property is always set to the correct display color
-        by _update_control() based on the is_on state, so we just use it directly.
+        Uses color if available (RGB controllers), otherwise falls back
+        to is_on-based coloring for non-RGB controllers (e.g., X-Touch Mini).
         """
-        self.styles.background = self._parse_color(self.color)
+        if self.color:
+            self.styles.background = self._parse_color(self.color)
+        elif self.is_on:
+            self.styles.background = "#00aa00"
+        else:
+            self.styles.background = "#333333"
 
     def _parse_color(self, color: str) -> str:
         """Parse color string to CSS hex color using padbound's RGBColor.
@@ -550,7 +556,7 @@ class ControllerStateApp(App):
             Static(section.name, classes="section-title"),
             grid,
             classes="section",
-            id=f"section-{section.name.lower().replace(' ', '-')}",
+            id=f"section-{re.sub(r'[^a-z0-9_-]', '-', section.name.lower())}",
         )
 
         return container
