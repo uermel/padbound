@@ -1245,7 +1245,7 @@ class XjamPlugin(ControllerPlugin):
             description=f"ESI Xjam - {bank_id}",
             sections=[
                 LayoutSection(
-                    name=f"Xjam [{bank_id}]",
+                    name=f"Xjam - {bank_id}",
                     controls=controls,
                     rows=5,
                     cols=6,

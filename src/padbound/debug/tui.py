@@ -47,16 +47,22 @@ class PadWidget(Static):
         self.control_id = control_id
 
     def compose(self) -> ComposeResult:
-        # control_id format: pad_{physical_row}_{col}
+        # Strip bank suffix if present (e.g., "pad_1@bank_1" -> "pad_1")
+        base_id = self.control_id.split("@")[0]
+        parts = base_id.split("_")
+
+        # control_id format for APC mini: pad_{physical_row}_{col}
         # Compute linear index: physical_row * 8 + col (0 = bottom-left)
-        parts = self.control_id.split("_")
         if len(parts) == 3 and parts[0] == "pad":
             physical_row = int(parts[1])
             col = int(parts[2])
             linear_index = physical_row * 8 + col
             yield Label(str(linear_index), id="pad-label")
+        # control_id format for most controllers: pad_{num}
+        elif len(parts) == 2 and parts[0] == "pad":
+            yield Label(parts[1], id="pad-label")
         else:
-            yield Label(self.control_id.split("_")[-1], id="pad-label")
+            yield Label(base_id.split("_")[-1], id="pad-label")
 
     def watch_is_on(self, value: bool) -> None:
         self._update_style()

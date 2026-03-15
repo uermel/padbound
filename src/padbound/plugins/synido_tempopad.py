@@ -1160,7 +1160,7 @@ class SynidoTempoPADPlugin(ControllerPlugin):
             description=f"Synido TempoPAD P16 - {bank_id}",
             sections=[
                 LayoutSection(
-                    name=f"TempoPAD [{bank_id}]",
+                    name=f"TempoPAD - {bank_id}",
                     controls=controls,
                     rows=6,
                     cols=6,

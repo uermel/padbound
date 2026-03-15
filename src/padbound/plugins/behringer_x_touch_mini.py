@@ -936,7 +936,7 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
             description=f"Behringer X-Touch Mini - {layer_id}",
             sections=[
                 LayoutSection(
-                    name=f"X-Touch Mini [{layer_id}]",
+                    name=f"X-Touch Mini - {layer_id}",
                     controls=controls,
                     rows=4,
                     cols=9,

@@ -1346,49 +1346,61 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
         """
         Define TUI layout matching physical LPD8 MK2 layout.
 
-        Physical layout (4 cols × 4 rows):
-        - Rows 0-1: 8 knobs in 2 rows of 4
-        - Rows 2-3: 8 pads in 2 rows of 4
+        Physical layout (8 cols × 2 rows):
+        - Cols 0-3: Pads (5-8 top row, 1-4 bottom row)
+        - Cols 4-7: Knobs (1-4 top row, 5-8 bottom row)
+
+        Pads:        Knobs:
+        5 6 7 8      1 2 3 4
+        1 2 3 4      5 6 7 8
         """
         controls = []
         bank_id = self._last_active_bank or "bank_1"
 
-        # Knobs (2 rows of 4)
-        for i in range(1, 9):
-            row = 0 if i <= 4 else 1
-            col = (i - 1) % 4
-            controls.append(
-                ControlPlacement(
-                    control_id=f"knob_{i}@{bank_id}",
-                    widget_type=ControlWidget.KNOB,
-                    row=row,
-                    col=col,
-                    label=f"K{i}",
-                ),
-            )
+        # Pads (cols 0-3)
+        # Row 0: pads 5-8, Row 1: pads 1-4
+        pad_layout = [
+            [5, 6, 7, 8],  # row 0
+            [1, 2, 3, 4],  # row 1
+        ]
+        for row, pad_row in enumerate(pad_layout):
+            for col, pad_num in enumerate(pad_row):
+                controls.append(
+                    ControlPlacement(
+                        control_id=f"pad_{pad_num}@{bank_id}",
+                        widget_type=ControlWidget.PAD,
+                        row=row,
+                        col=col,
+                    ),
+                )
 
-        # Pads (2 rows of 4)
-        for i in range(1, 9):
-            row = 2 if i <= 4 else 3
-            col = (i - 1) % 4
-            controls.append(
-                ControlPlacement(
-                    control_id=f"pad_{i}@{bank_id}",
-                    widget_type=ControlWidget.PAD,
-                    row=row,
-                    col=col,
-                ),
-            )
+        # Knobs (cols 4-7)
+        # Row 0: knobs 1-4, Row 1: knobs 5-8
+        knob_layout = [
+            [1, 2, 3, 4],  # row 0
+            [5, 6, 7, 8],  # row 1
+        ]
+        for row, knob_row in enumerate(knob_layout):
+            for col_offset, knob_num in enumerate(knob_row):
+                controls.append(
+                    ControlPlacement(
+                        control_id=f"knob_{knob_num}@{bank_id}",
+                        widget_type=ControlWidget.KNOB,
+                        row=row,
+                        col=4 + col_offset,
+                        label=f"K{knob_num}",
+                    ),
+                )
 
         return DebugLayout(
             plugin_name=self.name,
             description=f"AKAI LPD8 MK2 - {bank_id}",
             sections=[
                 LayoutSection(
-                    name=f"LPD8 MK2 [{bank_id}]",
+                    name=f"LPD8 MK2 - {bank_id}",
                     controls=controls,
-                    rows=4,
-                    cols=4,
+                    rows=2,
+                    cols=8,
                 ),
             ],
         )
