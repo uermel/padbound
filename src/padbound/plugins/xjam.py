@@ -144,6 +144,7 @@ from padbound.controls import (
     ControlType,
     ControlTypeModes,
 )
+from padbound.debug.layout import ControlPlacement, ControlWidget, DebugLayout, LayoutSection
 from padbound.logging_config import get_logger
 from padbound.plugin import (
     BatchFeedbackResult,
@@ -1202,3 +1203,52 @@ class XjamPlugin(ControllerPlugin):
             return (control_id, msg.value, "aftertouch")
 
         return None
+
+    def get_debug_layout(self) -> DebugLayout:
+        """
+        Define TUI layout matching physical Xjam layout.
+
+        Physical layout (6 cols × 5 rows):
+        - Row 0: 6 knobs
+        - Rows 1-4: 4×4 pad grid
+        """
+        controls = []
+        bank_id = self._last_active_bank or "bank_1"
+
+        # 6 knobs (row 0)
+        for i in range(1, 7):
+            controls.append(
+                ControlPlacement(
+                    control_id=f"knob_{i}@{bank_id}",
+                    widget_type=ControlWidget.KNOB,
+                    row=0,
+                    col=i - 1,
+                    label=f"K{i}",
+                ),
+            )
+
+        # 4×4 pad grid (rows 1-4)
+        for pad_num in range(1, 17):
+            row = 1 + (pad_num - 1) // 4
+            col = (pad_num - 1) % 4
+            controls.append(
+                ControlPlacement(
+                    control_id=f"pad_{pad_num}@{bank_id}",
+                    widget_type=ControlWidget.PAD,
+                    row=row,
+                    col=col,
+                ),
+            )
+
+        return DebugLayout(
+            plugin_name=self.name,
+            description=f"ESI Xjam - {bank_id}",
+            sections=[
+                LayoutSection(
+                    name=f"Xjam [{bank_id}]",
+                    controls=controls,
+                    rows=5,
+                    cols=6,
+                ),
+            ],
+        )

@@ -33,8 +33,17 @@ class StateChangeMessage(BaseModel):
     state: ControlState
 
 
+class LayoutChangeMessage(BaseModel):
+    """Message sent when the layout changes (e.g., bank switch)."""
+
+    type: Literal["layout_change"] = "layout_change"
+    timestamp: datetime
+    layout: DebugLayout
+    current_bank: Optional[str] = None  # For display in TUI header
+
+
 # Discriminated union for parsing any incoming message
 DebugMessage = Annotated[
-    Union[FullStateMessage, StateChangeMessage],
+    Union[FullStateMessage, StateChangeMessage, LayoutChangeMessage],
     Field(discriminator="type"),
 ]

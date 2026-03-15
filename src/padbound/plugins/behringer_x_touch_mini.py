@@ -69,6 +69,7 @@ from padbound.controls import (
     LEDAnimationType,
     LEDMode,
 )
+from padbound.debug.layout import ControlPlacement, ControlWidget, DebugLayout, LayoutSection
 from padbound.logging_config import get_logger
 from padbound.plugin import (
     BatchFeedbackResult,
@@ -858,3 +859,87 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
                 return LAYER_B_KNOBS[knob_num - 1]
 
         return None
+
+    def get_debug_layout(self) -> DebugLayout:
+        """
+        Define TUI layout matching physical X-Touch Mini layout.
+
+        Physical layout (9 cols × 4 rows):
+        - Row 0: 8 encoders (knob value display)
+        - Row 1: 8 encoder buttons
+        - Row 2: Pads 1-8 (top row)
+        - Row 3: Pads 9-16 (bottom row)
+        - Col 8: Fader (spans rows 2-3)
+        """
+        controls = []
+        layer_id = self._last_active_bank or "layer_a"
+
+        # Encoders row 0 (knob display)
+        for i in range(1, 9):
+            controls.append(
+                ControlPlacement(
+                    control_id=f"knob_{i}@{layer_id}",
+                    widget_type=ControlWidget.KNOB,
+                    row=0,
+                    col=i - 1,
+                    label=f"E{i}",
+                ),
+            )
+
+        # Encoder buttons row 1
+        for i in range(1, 9):
+            controls.append(
+                ControlPlacement(
+                    control_id=f"knob_button_{i}@{layer_id}",
+                    widget_type=ControlWidget.BUTTON,
+                    row=1,
+                    col=i - 1,
+                    label=f"EB{i}",
+                ),
+            )
+
+        # Pads 1-8 (row 2)
+        for i in range(1, 9):
+            controls.append(
+                ControlPlacement(
+                    control_id=f"pad_{i}@{layer_id}",
+                    widget_type=ControlWidget.PAD,
+                    row=2,
+                    col=i - 1,
+                ),
+            )
+
+        # Pads 9-16 (row 3)
+        for i in range(9, 17):
+            controls.append(
+                ControlPlacement(
+                    control_id=f"pad_{i}@{layer_id}",
+                    widget_type=ControlWidget.PAD,
+                    row=3,
+                    col=i - 9,
+                ),
+            )
+
+        # Fader (col 8)
+        controls.append(
+            ControlPlacement(
+                control_id=f"fader@{layer_id}",
+                widget_type=ControlWidget.FADER,
+                row=2,
+                col=8,
+                label="Fader",
+            ),
+        )
+
+        return DebugLayout(
+            plugin_name=self.name,
+            description=f"Behringer X-Touch Mini - {layer_id}",
+            sections=[
+                LayoutSection(
+                    name=f"X-Touch Mini [{layer_id}]",
+                    controls=controls,
+                    rows=4,
+                    cols=9,
+                ),
+            ],
+        )

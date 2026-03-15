@@ -95,6 +95,7 @@ class Controller:
         self._debug_host = debug_host
         self._debug_port = debug_port
         self._broadcaster: Optional["StateBroadcaster"] = None
+        self._last_debug_bank: Optional[str] = None  # Track active bank for TUI layout updates
 
         # Configuration system
         self._controller_config = config
@@ -1031,9 +1032,26 @@ class Controller:
         """
         Callback to broadcast state changes to debug clients.
 
+        Also detects bank changes from control_id suffix and triggers
+        layout refresh to update the TUI with the new bank's controls.
+
         Args:
             control_id: ID of the control that changed
             state: New state of the control
         """
-        if self._broadcaster:
-            self._broadcaster.broadcast_state_change(control_id, state)
+        if not self._broadcaster:
+            return
+
+        # Detect bank change from control_id (e.g., "pad_1@bank_2" -> "bank_2")
+        if "@" in control_id:
+            bank = control_id.split("@")[1]
+            if bank != self._last_debug_bank:
+                self._last_debug_bank = bank
+                # Refresh layout with new bank
+                layout = self._plugin.get_debug_layout()
+                if layout:
+                    self._broadcaster.broadcast_layout_change(layout, bank)
+                    logger.debug(f"TUI layout refreshed for bank: {bank}")
+
+        # Broadcast the state change
+        self._broadcaster.broadcast_state_change(control_id, state)

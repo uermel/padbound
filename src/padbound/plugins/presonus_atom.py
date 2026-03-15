@@ -131,6 +131,7 @@ from padbound.controls import (
     LEDAnimationType,
     LEDMode,
 )
+from padbound.debug.layout import ControlPlacement, ControlWidget, DebugLayout, LayoutSection
 from padbound.logging_config import get_logger
 from padbound.plugin import (
     BatchFeedbackResult,
@@ -721,3 +722,115 @@ class PreSonusAtomPlugin(ControllerPlugin):
             )
 
         return (None, True)  # Use default handling for other controls
+
+    def get_debug_layout(self) -> DebugLayout:
+        """
+        Define TUI layout matching physical PreSonus Atom layout.
+
+        Physical layout (6 cols × 11 rows):
+        - Col 0: Left button column (setup, set_loop, editor, nudge, show_hide,
+                 preset, bank, full_level, note_repeat, shift)
+        - Cols 1-4: 4 encoders (row 0), then 4×4 pad grid (rows 1-4)
+        - Col 5: Right button column (up, down, left, right, select, zoom,
+                 empty, click, record, play, stop)
+
+        Pad numbering (matches physical layout):
+            13 14 15 16  (row 1)
+             9 10 11 12  (row 2)
+             5  6  7  8  (row 3)
+             1  2  3  4  (row 4)
+        """
+        controls = []
+
+        # Left column buttons (col 0, rows 0-9)
+        left_buttons = [
+            ("setup", "Setup"),
+            ("set_loop", "Loop"),
+            ("event_editor", "Edit"),
+            ("event_nudge", "Nudge"),
+            ("inst_show_hide", "Show"),
+            ("preset_up_down", "Preset"),
+            ("inst_bank", "Bank"),
+            ("full_level", "Full"),
+            ("note_repeat", "Repeat"),
+            ("shift", "Shift"),
+        ]
+        for row, (btn_id, label) in enumerate(left_buttons):
+            controls.append(
+                ControlPlacement(
+                    control_id=btn_id,
+                    widget_type=ControlWidget.BUTTON,
+                    row=row,
+                    col=0,
+                    label=label,
+                ),
+            )
+
+        # Encoders (row 0, cols 1-4)
+        for i in range(1, 5):
+            controls.append(
+                ControlPlacement(
+                    control_id=f"encoder_{i}",
+                    widget_type=ControlWidget.ENCODER,
+                    row=0,
+                    col=i,
+                    label=f"E{i}",
+                ),
+            )
+
+        # 4×4 pad grid (rows 1-4, cols 1-4)
+        # Pad layout: bottom row is 1-4, top row is 13-16
+        pad_layout = [
+            [13, 14, 15, 16],  # row 1
+            [9, 10, 11, 12],  # row 2
+            [5, 6, 7, 8],  # row 3
+            [1, 2, 3, 4],  # row 4
+        ]
+        for row_offset, pad_row in enumerate(pad_layout):
+            for col_offset, pad_num in enumerate(pad_row):
+                controls.append(
+                    ControlPlacement(
+                        control_id=f"pad_{pad_num}",
+                        widget_type=ControlWidget.PAD,
+                        row=1 + row_offset,
+                        col=1 + col_offset,
+                    ),
+                )
+
+        # Right column buttons (col 5, rows 0-10, skip row 6 for empty slot)
+        right_buttons = [
+            (0, "nav_up", "Up"),
+            (1, "nav_down", "Down"),
+            (2, "nav_left", "Left"),
+            (3, "nav_right", "Right"),
+            (4, "nav_select", "Sel"),
+            (5, "nav_zoom", "Zoom"),
+            # Row 6 is empty
+            (7, "click", "Click"),
+            (8, "record", "Rec"),
+            (9, "play", "Play"),
+            (10, "stop", "Stop"),
+        ]
+        for row, btn_id, label in right_buttons:
+            controls.append(
+                ControlPlacement(
+                    control_id=btn_id,
+                    widget_type=ControlWidget.BUTTON,
+                    row=row,
+                    col=5,
+                    label=label,
+                ),
+            )
+
+        return DebugLayout(
+            plugin_name=self.name,
+            description="PreSonus ATOM",
+            sections=[
+                LayoutSection(
+                    name="ATOM",
+                    controls=controls,
+                    rows=11,
+                    cols=6,
+                ),
+            ],
+        )

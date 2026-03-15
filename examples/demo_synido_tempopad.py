@@ -236,7 +236,7 @@ def main():
     # Create controller instance
     print("\n2. Creating controller instance...")
     plugin = SynidoTempoPADPlugin()
-    controller = Controller(plugin=plugin, config=config)
+    controller = Controller(plugin=plugin, config=config, debug_server=True)
     print(f"   Controller created: {plugin.name}")
 
     # Register callbacks

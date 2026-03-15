@@ -20,7 +20,7 @@ from textual.widgets import Footer, Header, Label, Static
 
 from padbound.controls import ControlDefinition, ControlState
 from padbound.debug.layout import ControlWidget, DebugLayout, LayoutSection
-from padbound.debug.messages import DebugMessage, FullStateMessage, StateChangeMessage
+from padbound.debug.messages import DebugMessage, FullStateMessage, LayoutChangeMessage, StateChangeMessage
 from padbound.logging_config import get_logger
 from padbound.utils import RGBColor
 
@@ -349,6 +349,7 @@ class ControllerStateApp(App):
         self._layout: Optional[DebugLayout] = None
         self._widgets: dict[str, Static] = {}
         self._definitions: dict[str, ControlDefinition] = {}
+        self._cached_states: dict[str, ControlState] = {}  # Cache for layout rebuilds
         self._connected = False
         self._plugin_name = "Unknown"
 
@@ -432,14 +433,30 @@ class ControllerStateApp(App):
                 self.notify("No layout in full_state message!", severity="warning")
 
             if msg.states:
+                # Cache states for layout rebuilds
+                self._cached_states = dict(msg.states)
                 # Debug: show fader values
                 fader_states = {k: v.value for k, v in msg.states.items() if k.startswith("fader_")}
                 if fader_states:
                     self.notify(f"Fader values: {fader_states}")
                 await self._apply_full_state(msg.states)
 
+        elif isinstance(msg, LayoutChangeMessage):
+            # Layout changed (e.g., bank switch)
+            self.notify(f"Layout changed: bank={msg.current_bank}")
+            if msg.layout:
+                await self._build_layout(msg.layout)
+                # Apply current states to the new layout
+                if self._cached_states:
+                    await self._apply_full_state(self._cached_states)
+            # Update status bar with bank info
+            status = self.query_one("#status", Static)
+            if msg.current_bank:
+                status.update(Text(f"Connected to {self._plugin_name} [{msg.current_bank}]", style="green"))
+
         elif isinstance(msg, StateChangeMessage):
             # Single control update
+            self._cached_states[msg.control_id] = msg.state  # Cache for layout rebuilds
             await self._update_control(msg.control_id, msg.state)
 
     async def _build_layout(self, layout: DebugLayout) -> None:

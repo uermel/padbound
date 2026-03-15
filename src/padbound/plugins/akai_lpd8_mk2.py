@@ -254,6 +254,7 @@ from padbound.controls import (
     LEDAnimationType,
     LEDMode,
 )
+from padbound.debug.layout import ControlPlacement, ControlWidget, DebugLayout, LayoutSection
 from padbound.logging_config import get_logger
 from padbound.plugin import (
     BatchFeedbackResult,
@@ -1340,3 +1341,54 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
         )
 
         return program.to_sysex_message()
+
+    def get_debug_layout(self) -> DebugLayout:
+        """
+        Define TUI layout matching physical LPD8 MK2 layout.
+
+        Physical layout (4 cols × 4 rows):
+        - Rows 0-1: 8 knobs in 2 rows of 4
+        - Rows 2-3: 8 pads in 2 rows of 4
+        """
+        controls = []
+        bank_id = self._last_active_bank or "bank_1"
+
+        # Knobs (2 rows of 4)
+        for i in range(1, 9):
+            row = 0 if i <= 4 else 1
+            col = (i - 1) % 4
+            controls.append(
+                ControlPlacement(
+                    control_id=f"knob_{i}@{bank_id}",
+                    widget_type=ControlWidget.KNOB,
+                    row=row,
+                    col=col,
+                    label=f"K{i}",
+                ),
+            )
+
+        # Pads (2 rows of 4)
+        for i in range(1, 9):
+            row = 2 if i <= 4 else 3
+            col = (i - 1) % 4
+            controls.append(
+                ControlPlacement(
+                    control_id=f"pad_{i}@{bank_id}",
+                    widget_type=ControlWidget.PAD,
+                    row=row,
+                    col=col,
+                ),
+            )
+
+        return DebugLayout(
+            plugin_name=self.name,
+            description=f"AKAI LPD8 MK2 - {bank_id}",
+            sections=[
+                LayoutSection(
+                    name=f"LPD8 MK2 [{bank_id}]",
+                    controls=controls,
+                    rows=4,
+                    cols=4,
+                ),
+            ],
+        )

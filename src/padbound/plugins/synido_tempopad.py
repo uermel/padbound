@@ -148,6 +148,7 @@ from padbound.controls import (
     ControlType,
     ControlTypeModes,
 )
+from padbound.debug.layout import ControlPlacement, ControlWidget, DebugLayout, LayoutSection
 from padbound.logging_config import get_logger
 from padbound.plugin import (
     BatchFeedbackResult,
@@ -1065,3 +1066,104 @@ class SynidoTempoPADPlugin(ControllerPlugin):
             )
 
         return device_config
+
+    def get_debug_layout(self) -> DebugLayout:
+        """Return TUI debug layout for Synido TempoPAD P16."""
+        controls = []
+        bank_id = self._last_active_bank or "bank_a"
+
+        # 4 knobs (row 0, cols 0-3)
+        for i in range(1, 5):
+            controls.append(
+                ControlPlacement(
+                    control_id=f"knob_{i}@{bank_id}",
+                    widget_type=ControlWidget.KNOB,
+                    row=0,
+                    col=i - 1,
+                    label=f"K{i}",
+                ),
+            )
+
+        # Transport buttons (row 0, cols 4-5)
+        controls.append(
+            ControlPlacement(
+                control_id="button_record",
+                widget_type=ControlWidget.BUTTON,
+                row=0,
+                col=4,
+                label="Rec",
+            ),
+        )
+        controls.append(
+            ControlPlacement(
+                control_id="button_play",
+                widget_type=ControlWidget.BUTTON,
+                row=0,
+                col=5,
+                label="Play",
+            ),
+        )
+
+        # 4×4 pad grid (rows 1-4)
+        for pad_num in range(1, 17):
+            row = 1 + (pad_num - 1) // 4
+            col = (pad_num - 1) % 4
+            controls.append(
+                ControlPlacement(
+                    control_id=f"pad_{pad_num}@{bank_id}",
+                    widget_type=ControlWidget.PAD,
+                    row=row,
+                    col=col,
+                ),
+            )
+
+        # More transport buttons (row 5)
+        controls.append(
+            ControlPlacement(
+                control_id="button_back",
+                widget_type=ControlWidget.BUTTON,
+                row=5,
+                col=0,
+                label="Back",
+            ),
+        )
+        controls.append(
+            ControlPlacement(
+                control_id="button_stop",
+                widget_type=ControlWidget.BUTTON,
+                row=5,
+                col=1,
+                label="Stop",
+            ),
+        )
+        controls.append(
+            ControlPlacement(
+                control_id="button_forward",
+                widget_type=ControlWidget.BUTTON,
+                row=5,
+                col=2,
+                label="Fwd",
+            ),
+        )
+        controls.append(
+            ControlPlacement(
+                control_id="button_loop",
+                widget_type=ControlWidget.BUTTON,
+                row=5,
+                col=3,
+                label="Loop",
+            ),
+        )
+
+        return DebugLayout(
+            plugin_name=self.name,
+            description=f"Synido TempoPAD P16 - {bank_id}",
+            sections=[
+                LayoutSection(
+                    name=f"TempoPAD [{bank_id}]",
+                    controls=controls,
+                    rows=6,
+                    cols=6,
+                ),
+            ],
+        )
