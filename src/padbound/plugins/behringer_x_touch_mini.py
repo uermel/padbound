@@ -864,12 +864,12 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
         """
         Define TUI layout matching physical X-Touch Mini layout.
 
-        Physical layout (9 cols × 4 rows):
+        Physical layout (8 cols × 5 rows):
         - Row 0: 8 encoders (knob value display)
         - Row 1: 8 encoder buttons
         - Row 2: Pads 1-8 (top row)
         - Row 3: Pads 9-16 (bottom row)
-        - Col 8: Fader (spans rows 2-3)
+        - Row 4: Fader (separate row to avoid height interference)
         """
         controls = []
         layer_id = self._last_active_bank or "layer_a"
@@ -920,13 +920,13 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
                 ),
             )
 
-        # Fader (col 8)
+        # Fader (row 4, separate row to avoid affecting pad row heights)
         controls.append(
             ControlPlacement(
                 control_id=f"fader@{layer_id}",
                 widget_type=ControlWidget.FADER,
-                row=2,
-                col=8,
+                row=4,
+                col=0,
                 label="Fader",
             ),
         )
@@ -938,8 +938,8 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
                 LayoutSection(
                     name=f"X-Touch Mini - {layer_id}",
                     controls=controls,
-                    rows=4,
-                    cols=9,
+                    rows=5,
+                    cols=8,
                 ),
             ],
         )
