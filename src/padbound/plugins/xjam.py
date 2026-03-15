@@ -1208,37 +1208,53 @@ class XjamPlugin(ControllerPlugin):
         """
         Define TUI layout matching physical Xjam layout.
 
-        Physical layout (6 cols × 5 rows):
-        - Row 0: 6 knobs
-        - Rows 1-4: 4×4 pad grid
+        Physical layout (7 cols × 4 rows):
+        - Cols 0-2: 6 knobs (2 rows of 3)
+        - Cols 3-6: 4×4 pad grid
+
+        Knobs:       Pads:
+        1 2 3        13 14 15 16
+        4 5 6         9 10 11 12
+                      5  6  7  8
+                      1  2  3  4
         """
         controls = []
         bank_id = self._last_active_bank or "bank_1"
 
-        # 6 knobs (row 0)
-        for i in range(1, 7):
-            controls.append(
-                ControlPlacement(
-                    control_id=f"knob_{i}@{bank_id}",
-                    widget_type=ControlWidget.KNOB,
-                    row=0,
-                    col=i - 1,
-                    label=f"K{i}",
-                ),
-            )
+        # Knobs (cols 0-2, rows 0-1)
+        knob_layout = [
+            [1, 2, 3],  # row 0
+            [4, 5, 6],  # row 1
+        ]
+        for row, knob_row in enumerate(knob_layout):
+            for col, knob_num in enumerate(knob_row):
+                controls.append(
+                    ControlPlacement(
+                        control_id=f"knob_{knob_num}@{bank_id}",
+                        widget_type=ControlWidget.KNOB,
+                        row=row,
+                        col=col,
+                        label=f"K{knob_num}",
+                    ),
+                )
 
-        # 4×4 pad grid (rows 1-4)
-        for pad_num in range(1, 17):
-            row = 1 + (pad_num - 1) // 4
-            col = (pad_num - 1) % 4
-            controls.append(
-                ControlPlacement(
-                    control_id=f"pad_{pad_num}@{bank_id}",
-                    widget_type=ControlWidget.PAD,
-                    row=row,
-                    col=col,
-                ),
-            )
+        # Pads (cols 3-6, rows 0-3)
+        pad_layout = [
+            [13, 14, 15, 16],  # row 0
+            [9, 10, 11, 12],  # row 1
+            [5, 6, 7, 8],  # row 2
+            [1, 2, 3, 4],  # row 3
+        ]
+        for row, pad_row in enumerate(pad_layout):
+            for col_offset, pad_num in enumerate(pad_row):
+                controls.append(
+                    ControlPlacement(
+                        control_id=f"pad_{pad_num}@{bank_id}",
+                        widget_type=ControlWidget.PAD,
+                        row=row,
+                        col=3 + col_offset,
+                    ),
+                )
 
         return DebugLayout(
             plugin_name=self.name,
@@ -1247,8 +1263,8 @@ class XjamPlugin(ControllerPlugin):
                 LayoutSection(
                     name=f"Xjam - {bank_id}",
                     controls=controls,
-                    rows=5,
-                    cols=6,
+                    rows=4,
+                    cols=7,
                 ),
             ],
         )
