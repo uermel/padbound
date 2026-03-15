@@ -20,11 +20,14 @@ from padbound.controls import (
 
 class BankState:
     """
-    Tracks active bank per control type.
+    Tracks active bank per control category.
 
     Bank tracking is capability-dependent. Most controllers do NOT report
     when the user changes banks on the hardware, so bank tracking is often
     unavailable even if the controller has banks.
+
+    Banks are keyed by category string (e.g., "pad", "knob") to support
+    controllers with independent pad and knob bank switching.
     """
 
     def __init__(self, supports_bank_feedback: bool):
@@ -35,19 +38,15 @@ class BankState:
             supports_bank_feedback: Whether controller reports bank changes via MIDI
         """
         self._supports_feedback = supports_bank_feedback
-        self._active_banks: dict[ControlType, Optional[str]] = {
-            ControlType.TOGGLE: None,
-            ControlType.MOMENTARY: None,
-            ControlType.CONTINUOUS: None,
-        }
+        self._active_banks: dict[str, Optional[str]] = {}
         self._lock = threading.RLock()
 
-    def set_active_bank(self, control_type: ControlType, bank_id: str) -> None:
+    def set_active_bank(self, category: str, bank_id: str) -> None:
         """
-        Set active bank for a control type.
+        Set active bank for a control category.
 
         Args:
-            control_type: Type of controls in this bank
+            category: Control category (e.g., "pad", "knob")
             bank_id: Bank identifier
 
         Note:
@@ -58,14 +57,14 @@ class BankState:
             return
 
         with self._lock:
-            self._active_banks[control_type] = bank_id
+            self._active_banks[category] = bank_id
 
-    def get_active_bank(self, control_type: ControlType) -> Optional[str]:
+    def get_active_bank(self, category: str) -> Optional[str]:
         """
-        Get active bank for control type.
+        Get active bank for control category.
 
         Args:
-            control_type: Type of controls
+            category: Control category (e.g., "pad", "knob")
 
         Returns:
             Bank ID if supported and set, None otherwise
@@ -74,7 +73,17 @@ class BankState:
             return None
 
         with self._lock:
-            return self._active_banks[control_type]
+            return self._active_banks.get(category)
+
+    def get_all_active_banks(self) -> dict[str, Optional[str]]:
+        """
+        Get all active banks by category.
+
+        Returns:
+            Dictionary mapping category to bank ID
+        """
+        with self._lock:
+            return dict(self._active_banks)
 
     def is_bank_tracking_supported(self) -> bool:
         """Check if bank tracking is supported."""
@@ -288,30 +297,39 @@ class ControllerState:
 
     # Bank management methods
 
-    def set_active_bank(self, control_type: ControlType, bank_id: str) -> None:
+    def set_active_bank(self, category: str, bank_id: str) -> None:
         """
-        Set active bank for control type.
+        Set active bank for control category.
 
         Args:
-            control_type: Type of controls
+            category: Control category (e.g., "pad", "knob")
             bank_id: Bank identifier
 
         Note:
             Silent no-op if bank tracking not supported by controller.
         """
-        self._bank_state.set_active_bank(control_type, bank_id)
+        self._bank_state.set_active_bank(category, bank_id)
 
-    def get_active_bank(self, control_type: ControlType) -> Optional[str]:
+    def get_active_bank(self, category: str) -> Optional[str]:
         """
-        Get active bank for control type.
+        Get active bank for control category.
 
         Args:
-            control_type: Type of controls
+            category: Control category (e.g., "pad", "knob")
 
         Returns:
             Bank ID if tracking supported and set, None otherwise
         """
-        return self._bank_state.get_active_bank(control_type)
+        return self._bank_state.get_active_bank(category)
+
+    def get_all_active_banks(self) -> dict[str, Optional[str]]:
+        """
+        Get all active banks by category.
+
+        Returns:
+            Dictionary mapping category to bank ID
+        """
+        return self._bank_state.get_all_active_banks()
 
     def is_bank_tracking_supported(self) -> bool:
         """

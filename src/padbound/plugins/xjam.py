@@ -260,7 +260,7 @@ class XjamKnobConfig(BaseModel):
     msg_type: int = Field(ge=4, le=7, default=4, description="Message type: 4=CC, 5=Pitch, 6=PC, 7=AT")
     cc_num: int = Field(ge=0, le=127, default=0, description="CC number (for CC mode)")
     encoder_mode: int = Field(ge=0, le=3, default=0, description="Encoder mode: 0=abs, 1=rel2s, 2=relbin, 3=relsig")
-    channel: int = Field(ge=0, le=15, default=0, description="MIDI channel (0-indexed)")
+    channel: int = Field(ge=0, le=16, default=0, description="MIDI channel: 0=global, 1-16=specific")
 
     def to_sysex_message(self) -> mido.Message:
         """Build SysEx message for knob configuration.
@@ -461,9 +461,10 @@ class XjamPlugin(ControllerPlugin):
     DEFAULT_KNOB_CCS = [28, 29, 30, 31, 32, 33]
 
     def __init__(self):
-        """Initialize plugin with bank tracking."""
+        """Initialize plugin with separate pad/knob bank tracking."""
         super().__init__()
-        self._last_active_bank: Optional[str] = None
+        self._last_pad_bank: str = "bank_1"
+        self._last_knob_bank: str = "bank_1"
         # Track callbacks for runtime queries
         self._send_message: Optional[Callable[[mido.Message], None]] = None
         self._receive_message: Optional[Callable[[float], Optional[mido.Message]]] = None
@@ -491,7 +492,7 @@ class XjamPlugin(ControllerPlugin):
 
     def get_bank_definitions(self) -> list[BankDefinition]:
         """
-        Define 3 banks (synchronized pad and knob banks).
+        Define 3 pad banks and 3 knob banks (independent).
 
         Banks are color-coded matching the hardware:
         - Bank 1: Green
@@ -499,9 +500,12 @@ class XjamPlugin(ControllerPlugin):
         - Bank 3: Red
         """
         return [
-            BankDefinition(bank_id="bank_1", control_type=ControlType.TOGGLE, display_name="Bank 1 (Green)"),
-            BankDefinition(bank_id="bank_2", control_type=ControlType.TOGGLE, display_name="Bank 2 (Yellow)"),
-            BankDefinition(bank_id="bank_3", control_type=ControlType.TOGGLE, display_name="Bank 3 (Red)"),
+            BankDefinition(bank_id="bank_1", category="pad", display_name="Bank 1 (Green)"),
+            BankDefinition(bank_id="bank_2", category="pad", display_name="Bank 2 (Yellow)"),
+            BankDefinition(bank_id="bank_3", category="pad", display_name="Bank 3 (Red)"),
+            BankDefinition(bank_id="bank_1", category="knob", display_name="Bank 1 (Green)"),
+            BankDefinition(bank_id="bank_2", category="knob", display_name="Bank 2 (Yellow)"),
+            BankDefinition(bank_id="bank_3", category="knob", display_name="Bank 3 (Red)"),
         ]
 
     def get_control_definitions(self) -> list[ControlDefinition]:
@@ -737,7 +741,7 @@ class XjamPlugin(ControllerPlugin):
                     msg_type=XjamSysEx.KNOB_MSG_CC,
                     cc_num=knob_cc,
                     encoder_mode=0,  # Absolute mode
-                    channel=channel,  # Protocol uses 0-indexed channels here
+                    channel=channel + 1,  # Protocol uses 1-indexed channels (0=global)
                 )
                 send_message(knob_config.to_sysex_message())
                 time.sleep(0.02)
@@ -762,8 +766,9 @@ class XjamPlugin(ControllerPlugin):
             send_message(msg)
             time.sleep(0.05)
 
-        # Set initial active bank
-        self._last_active_bank = "bank_1"
+        # Set initial active banks
+        self._last_pad_bank = "bank_1"
+        self._last_knob_bank = "bank_1"
 
         logger.info("Xjam initialization complete")
         return {}
@@ -916,7 +921,7 @@ class XjamPlugin(ControllerPlugin):
                     msg_type=XjamSysEx.KNOB_MSG_CC,
                     cc_num=knob_cc,
                     encoder_mode=0,
-                    channel=channel,
+                    channel=channel + 1,  # Protocol uses 1-indexed channels (0=global)
                 )
                 send_message(knob_config.to_sysex_message())
                 time.sleep(0.02)
@@ -1093,6 +1098,7 @@ class XjamPlugin(ControllerPlugin):
 
         Since we configure each bank to use a different MIDI channel (1-3),
         we can detect bank switches by monitoring the channel of incoming messages.
+        Pad and knob banks are tracked independently.
 
         Args:
             msg: MIDI message to translate
@@ -1117,31 +1123,29 @@ class XjamPlugin(ControllerPlugin):
                 # Silently ignore ACK messages
                 return None
 
-        # Detect bank from channel
+        # Detect bank from channel and update per-category bank tracking
         if hasattr(msg, "channel"):
             channel = msg.channel
             for bank_id, ch in self.BANK_CHANNELS.items():
                 if ch == channel:
-                    if bank_id != self._last_active_bank:
-                        logger.info(f"Xjam bank switch: {self._last_active_bank} → {bank_id}")
-                        self._last_active_bank = bank_id
-
-                        # Sync both pad and ctrl banks to same value
-                        # (Xjam has separate pad/ctrl banks - keep them synchronized)
-                        if self._send_message:
-                            bank_num = int(bank_id.split("_")[1]) - 1  # "bank_1" -> 0
-                            bank_select = XjamBankSelect(bank=bank_num)
-                            self._send_message(bank_select.to_pad_bank_message())
-                            time.sleep(0.05)  # Xjam needs delay between SysEx commands
-                            self._send_message(bank_select.to_ctrl_bank_message())
+                    # Determine if this is a pad or knob message to track the right bank
+                    if msg.type in ("note_on", "note_off", "program_change"):
+                        if bank_id != self._last_pad_bank:
+                            logger.info(f"Xjam pad bank switch: {self._last_pad_bank} → {bank_id}")
+                            self._last_pad_bank = bank_id
+                    elif msg.type in ("control_change", "pitchwheel", "aftertouch") and bank_id != self._last_knob_bank:
+                        logger.info(f"Xjam knob bank switch: {self._last_knob_bank} → {bank_id}")
+                        self._last_knob_bank = bank_id
                     break
 
-        # Route message to active bank
-        return self._route_to_active_bank(msg)
+        # Route message to appropriate bank
+        return self._route_to_bank(msg)
 
-    def _route_to_active_bank(self, msg: mido.Message) -> Optional[tuple[str, int, str]]:
+    def _route_to_bank(self, msg: mido.Message) -> Optional[tuple[str, int, str]]:
         """
-        Route message to control in the active bank.
+        Route message to control in the appropriate bank.
+
+        Uses _last_pad_bank for pad messages and _last_knob_bank for knob messages.
 
         Args:
             msg: MIDI message to route
@@ -1149,18 +1153,13 @@ class XjamPlugin(ControllerPlugin):
         Returns:
             (control_id, value, signal_type) or None if not a recognized control
         """
-        if not self._last_active_bank:
-            return None
-
-        bank_id = self._last_active_bank
-
         # Handle note messages (pads in Note mode)
         if msg.type in ("note_on", "note_off"):
             note = msg.note
             # Find pad by note number
             if note in self.DEFAULT_PAD_NOTES:
                 pad_num = self.DEFAULT_PAD_NOTES.index(note) + 1
-                control_id = f"pad_{pad_num}@{bank_id}"
+                control_id = f"pad_{pad_num}@{self._last_pad_bank}"
                 value = msg.velocity
                 return (control_id, value, "note")
 
@@ -1171,13 +1170,13 @@ class XjamPlugin(ControllerPlugin):
             # Check if it's a knob CC
             if cc in self.DEFAULT_KNOB_CCS:
                 knob_num = self.DEFAULT_KNOB_CCS.index(cc) + 1
-                control_id = f"knob_{knob_num}@{bank_id}"
+                control_id = f"knob_{knob_num}@{self._last_knob_bank}"
                 return (control_id, msg.value, "cc")
 
             # Check if it's a pad CC (pad note numbers used as CC in CC mode)
             if cc in self.DEFAULT_PAD_NOTES:
                 pad_num = self.DEFAULT_PAD_NOTES.index(cc) + 1
-                control_id = f"pad_{pad_num}@{bank_id}"
+                control_id = f"pad_{pad_num}@{self._last_pad_bank}"
                 return (control_id, msg.value, "cc")
 
         # Handle program change (pads in PC mode)
@@ -1186,20 +1185,20 @@ class XjamPlugin(ControllerPlugin):
             # This is a simplification - actual behavior depends on pad config
             program = msg.program
             if 0 <= program < self.PAD_COUNT:
-                control_id = f"pad_{program + 1}@{bank_id}"
+                control_id = f"pad_{program + 1}@{self._last_pad_bank}"
                 return (control_id, 127, "pc")
 
         # Handle pitch bend (knobs in Pitch mode)
         elif msg.type == "pitchwheel":
             # Pitch bend is channel-wide, route to knob_1
-            control_id = f"knob_1@{bank_id}"
+            control_id = f"knob_1@{self._last_knob_bank}"
             # Convert pitch (-8192 to 8191) to 0-127
             value = int((msg.pitch + 8192) / 16383 * 127)
             return (control_id, value, "pitch")
 
         # Handle aftertouch (knobs in Aftertouch mode)
         elif msg.type == "aftertouch":
-            control_id = f"knob_1@{bank_id}"
+            control_id = f"knob_1@{self._last_knob_bank}"
             return (control_id, msg.value, "aftertouch")
 
         return None
@@ -1219,7 +1218,8 @@ class XjamPlugin(ControllerPlugin):
                       1  2  3  4
         """
         controls = []
-        bank_id = self._last_active_bank or "bank_1"
+        pad_bank = self._last_pad_bank
+        knob_bank = self._last_knob_bank
 
         # Knobs (cols 0-2, rows 0-1)
         knob_layout = [
@@ -1230,7 +1230,7 @@ class XjamPlugin(ControllerPlugin):
             for col, knob_num in enumerate(knob_row):
                 controls.append(
                     ControlPlacement(
-                        control_id=f"knob_{knob_num}@{bank_id}",
+                        control_id=f"knob_{knob_num}@{knob_bank}",
                         widget_type=ControlWidget.KNOB,
                         row=row,
                         col=col,
@@ -1249,19 +1249,20 @@ class XjamPlugin(ControllerPlugin):
             for col_offset, pad_num in enumerate(pad_row):
                 controls.append(
                     ControlPlacement(
-                        control_id=f"pad_{pad_num}@{bank_id}",
+                        control_id=f"pad_{pad_num}@{pad_bank}",
                         widget_type=ControlWidget.PAD,
                         row=row,
                         col=3 + col_offset,
                     ),
                 )
 
+        bank_desc = f"pads: {pad_bank} | knobs: {knob_bank}" if pad_bank != knob_bank else pad_bank
         return DebugLayout(
             plugin_name=self.name,
-            description=f"ESI Xjam - {bank_id}",
+            description=f"ESI Xjam - {bank_desc}",
             sections=[
                 LayoutSection(
-                    name=f"Xjam - {bank_id}",
+                    name=f"Xjam - {bank_desc}",
                     controls=controls,
                     rows=4,
                     cols=7,

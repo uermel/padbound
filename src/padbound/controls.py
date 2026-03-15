@@ -140,10 +140,13 @@ class BankDefinition(BaseModel):
 
     Many MIDI controllers organize controls into banks that can be switched
     to access more controls than physical hardware.
+
+    Banks are grouped by category (e.g., "pad", "knob") to support controllers
+    with independent pad and knob bank switching.
     """
 
     bank_id: str  # e.g., "bank_1", "bank_2"
-    control_type: ControlType  # Which control type this bank is for
+    category: str  # Which control category this bank is for (e.g., "pad", "knob")
     display_name: Optional[str] = None  # User-friendly name
 
 

@@ -107,14 +107,25 @@ def on_knob_change(control_id: str, state: ControlState):
     print(f"[KNOB {knob_num}] Bank {bank_num} {state.value:3d}/127 [{bar:<31s}]")
 
 
-def on_bank_change(bank_id: str):
-    """Callback for bank changes."""
+def on_pad_bank_change(bank_id: str):
+    """Callback for pad bank changes."""
     bank_num = bank_id.split("_")[1] if "_" in bank_id else "?"
     bank_colors = {"1": "Green", "2": "Yellow", "3": "Red"}
     color = bank_colors.get(bank_num, "Unknown")
 
     print(f"\n{'='*60}")
-    print(f"[BANK SWITCH] Switched to {bank_id} ({color})")
+    print(f"[PAD BANK SWITCH] Switched to {bank_id} ({color})")
+    print(f"{'='*60}\n")
+
+
+def on_knob_bank_change(bank_id: str):
+    """Callback for knob bank changes."""
+    bank_num = bank_id.split("_")[1] if "_" in bank_id else "?"
+    bank_colors = {"1": "Green", "2": "Yellow", "3": "Red"}
+    color = bank_colors.get(bank_num, "Unknown")
+
+    print(f"\n{'='*60}")
+    print(f"[KNOB BANK SWITCH] Switched to {bank_id} ({color})")
     print(f"{'='*60}\n")
 
 
@@ -155,9 +166,10 @@ def main():
     controller.on_type(ControlType.CONTINUOUS, on_knob_change)
     print("   Registered callbacks for pads (TOGGLE/MOMENTARY) and knobs (CONTINUOUS)")
 
-    # Bank change callback
-    controller.on_bank_change(ControlType.TOGGLE, on_bank_change)
-    print("   Registered bank change callback")
+    # Bank change callbacks (separate for pads and knobs)
+    controller.on_bank_change("pad", on_pad_bank_change)
+    controller.on_bank_change("knob", on_knob_bank_change)
+    print("   Registered pad and knob bank change callbacks")
 
     # Global callback for everything
     controller.on_global(on_any_control)

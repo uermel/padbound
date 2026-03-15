@@ -186,10 +186,12 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
     def get_bank_definitions(self) -> list[BankDefinition]:
         """
         Define 2 banks (Layer A and Layer B).
+
+        All controls switch layers together on this controller.
         """
         return [
-            BankDefinition(bank_id="layer_a", control_type=ControlType.TOGGLE, display_name="Layer A"),
-            BankDefinition(bank_id="layer_b", control_type=ControlType.TOGGLE, display_name="Layer B"),
+            BankDefinition(bank_id="layer_a", category="pad", display_name="Layer A"),
+            BankDefinition(bank_id="layer_b", category="pad", display_name="Layer B"),
         ]
 
     def get_control_definitions(self) -> list[ControlDefinition]:

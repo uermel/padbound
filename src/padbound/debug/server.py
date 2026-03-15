@@ -197,7 +197,7 @@ class StateBroadcaster:
 
         asyncio.run_coroutine_threadsafe(self._broadcast(message.model_dump_json()), self._loop)
 
-    def broadcast_layout_change(self, layout: "DebugLayout", current_bank: str | None = None) -> None:
+    def broadcast_layout_change(self, layout: "DebugLayout", current_banks: dict[str, str] | None = None) -> None:
         """
         Broadcast a layout change to all connected clients.
 
@@ -206,7 +206,7 @@ class StateBroadcaster:
 
         Args:
             layout: New layout definition from the plugin
-            current_bank: Currently active bank identifier (for TUI display)
+            current_banks: Currently active banks by category (e.g., {"pad": "bank_1", "knob": "bank_2"})
         """
         if not self._running or not self._loop:
             return
@@ -217,7 +217,7 @@ class StateBroadcaster:
             type="layout_change",
             timestamp=datetime.now(),
             layout=layout,
-            current_bank=current_bank,
+            current_banks=current_banks,
         )
 
         # Also update cached full state with the new layout

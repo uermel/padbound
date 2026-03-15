@@ -214,13 +214,13 @@ class ExampleMIDIController(ControllerPlugin):
         return [
             BankDefinition(
                 bank_id="bank_1",
-                control_type=ControlType.TOGGLE,
-                display_name="Bank 1",  # Primary control type
+                category="pad",
+                display_name="Bank 1",
             ),
             BankDefinition(
                 bank_id="bank_2",
-                control_type=ControlType.TOGGLE,
-                display_name="Bank 2",  # Primary control type
+                category="pad",
+                display_name="Bank 2",
             ),
         ]
 

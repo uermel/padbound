@@ -533,9 +533,10 @@ class AkaiMPD218Plugin(ControllerPlugin):
     SYSEX_PRESET_REQUEST = 0x12
 
     def __init__(self):
-        """Initialize plugin with bank tracking."""
+        """Initialize plugin with separate pad/knob bank tracking."""
         super().__init__()
-        self._last_active_bank: str = "bank_a"
+        self._last_pad_bank: str = "bank_a"
+        self._last_knob_bank: str = "bank_a"
         self._current_preset: Optional[MPD218PresetConfig] = None
         # Store callbacks for runtime queries
         self._send_message: Optional[Callable[[mido.Message], None]] = None
@@ -564,26 +565,18 @@ class AkaiMPD218Plugin(ControllerPlugin):
 
     def get_bank_definitions(self) -> list[BankDefinition]:
         """
-        Define 3 pad/knob banks.
+        Define 3 pad banks and 3 knob banks (independent).
 
-        Banks are detected by note range since all use the same MIDI channel.
+        Banks are detected by note range (pads) and CC range (knobs)
+        since all use the same MIDI channel.
         """
         return [
-            BankDefinition(
-                bank_id="bank_a",
-                control_type=ControlType.TOGGLE,
-                display_name="Bank A",
-            ),
-            BankDefinition(
-                bank_id="bank_b",
-                control_type=ControlType.TOGGLE,
-                display_name="Bank B",
-            ),
-            BankDefinition(
-                bank_id="bank_c",
-                control_type=ControlType.TOGGLE,
-                display_name="Bank C",
-            ),
+            BankDefinition(bank_id="bank_a", category="pad", display_name="Bank A"),
+            BankDefinition(bank_id="bank_b", category="pad", display_name="Bank B"),
+            BankDefinition(bank_id="bank_c", category="pad", display_name="Bank C"),
+            BankDefinition(bank_id="bank_a", category="knob", display_name="Bank A"),
+            BankDefinition(bank_id="bank_b", category="knob", display_name="Bank B"),
+            BankDefinition(bank_id="bank_c", category="knob", display_name="Bank C"),
         ]
 
     def get_control_definitions(self) -> list[ControlDefinition]:
@@ -701,7 +694,8 @@ class AkaiMPD218Plugin(ControllerPlugin):
         Translate MIDI input with bank detection from note range.
 
         Since all banks share the same MIDI channel, we detect the active
-        bank from the note number for pad messages.
+        bank from the note number for pads and CC number for knobs.
+        Pad and knob banks are tracked independently.
 
         Returns:
             (control_id, value, signal_type) or None
@@ -713,10 +707,10 @@ class AkaiMPD218Plugin(ControllerPlugin):
             # Find which bank this note belongs to
             for bank_id, (start_note, end_note) in self.BANK_NOTE_RANGES.items():
                 if start_note <= note <= end_note:
-                    # Update active bank tracking
-                    if bank_id != self._last_active_bank:
-                        logger.debug(f"MPD218 bank switch: {self._last_active_bank} -> {bank_id}")
-                        self._last_active_bank = bank_id
+                    # Update pad bank tracking
+                    if bank_id != self._last_pad_bank:
+                        logger.debug(f"MPD218 pad bank switch: {self._last_pad_bank} -> {bank_id}")
+                        self._last_pad_bank = bank_id
 
                     pad_num = note - start_note + 1
                     control_id = f"pad_{pad_num}@{bank_id}"
@@ -731,6 +725,11 @@ class AkaiMPD218Plugin(ControllerPlugin):
             for bank_id in self.BANK_IDS:
                 knob_ccs = self.DEFAULT_KNOB_CCS[bank_id]
                 if cc in knob_ccs:
+                    # Update knob bank tracking
+                    if bank_id != self._last_knob_bank:
+                        logger.debug(f"MPD218 knob bank switch: {self._last_knob_bank} -> {bank_id}")
+                        self._last_knob_bank = bank_id
+
                     knob_num = knob_ccs.index(cc) + 1
                     control_id = f"knob_{knob_num}@{bank_id}"
                     return (control_id, msg.value, "default")
@@ -823,7 +822,8 @@ class AkaiMPD218Plugin(ControllerPlugin):
             self._current_preset = None
 
         # Default to bank A
-        self._last_active_bank = "bank_a"
+        self._last_pad_bank = "bank_a"
+        self._last_knob_bank = "bank_a"
 
         logger.info("MPD218 initialization complete")
         return None
@@ -1058,6 +1058,8 @@ class AkaiMPD218Plugin(ControllerPlugin):
         from padbound.debug.layout import ControlPlacement, ControlWidget, DebugLayout, LayoutSection
 
         controls = []
+        pad_bank = self._last_pad_bank
+        knob_bank = self._last_knob_bank
 
         # Knobs (cols 0-1, rows 0-2)
         knob_layout = [
@@ -1069,7 +1071,7 @@ class AkaiMPD218Plugin(ControllerPlugin):
             for col, knob_num in enumerate(knob_row):
                 controls.append(
                     ControlPlacement(
-                        control_id=f"knob_{knob_num}@{self._last_active_bank}",
+                        control_id=f"knob_{knob_num}@{knob_bank}",
                         widget_type=ControlWidget.KNOB,
                         row=row,
                         col=col,
@@ -1089,19 +1091,20 @@ class AkaiMPD218Plugin(ControllerPlugin):
             for col_offset, pad_num in enumerate(pad_row):
                 controls.append(
                     ControlPlacement(
-                        control_id=f"pad_{pad_num}@{self._last_active_bank}",
+                        control_id=f"pad_{pad_num}@{pad_bank}",
                         widget_type=ControlWidget.PAD,
                         row=row,
                         col=2 + col_offset,
                     ),
                 )
 
+        bank_desc = f"pads: {pad_bank} | knobs: {knob_bank}" if pad_bank != knob_bank else pad_bank
         return DebugLayout(
             plugin_name=self.name,
-            description="AKAI MPD218 with 4x4 pad grid (3 banks) and 6 knobs (3 banks)",
+            description=f"AKAI MPD218 - {bank_desc}",
             sections=[
                 LayoutSection(
-                    name="MPD218",
+                    name=f"MPD218 - {bank_desc}",
                     controls=controls,
                     rows=4,
                     cols=6,

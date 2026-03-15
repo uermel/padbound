@@ -39,7 +39,7 @@ class LayoutChangeMessage(BaseModel):
     type: Literal["layout_change"] = "layout_change"
     timestamp: datetime
     layout: DebugLayout
-    current_bank: Optional[str] = None  # For display in TUI header
+    current_banks: Optional[dict[str, str]] = None  # category -> bank_id for TUI header
 
 
 # Discriminated union for parsing any incoming message

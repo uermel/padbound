@@ -95,7 +95,7 @@ class Controller:
         self._debug_host = debug_host
         self._debug_port = debug_port
         self._broadcaster: Optional["StateBroadcaster"] = None
-        self._last_debug_bank: Optional[str] = None  # Track active bank for TUI layout updates
+        self._last_debug_banks: dict[str, str] = {}  # Track active bank per category for TUI layout updates
 
         # Configuration system
         self._controller_config = config
@@ -659,9 +659,12 @@ class Controller:
 
     # Bank management
 
-    def get_active_bank(self, control_type: ControlType) -> Optional[str]:
+    def get_active_bank(self, category: str) -> Optional[str]:
         """
-        Get active bank for control type.
+        Get active bank for control category.
+
+        Args:
+            category: Control category (e.g., "pad", "knob")
 
         Returns:
             Bank ID if tracking supported and set, None otherwise
@@ -672,21 +675,21 @@ class Controller:
             but cannot tell you which bank is currently active.
         """
         self._ensure_connected()
-        return self._state.get_active_bank(control_type)
+        return self._state.get_active_bank(category)
 
-    def set_active_bank(self, control_type: ControlType, bank_id: str) -> None:
+    def set_active_bank(self, category: str, bank_id: str) -> None:
         """
-        Set active bank for control type.
+        Set active bank for control category.
 
         Args:
-            control_type: Type of controls
+            category: Control category (e.g., "pad", "knob")
             bank_id: Bank identifier
 
         Note:
             Silent no-op if bank tracking not supported.
         """
         self._ensure_connected()
-        self._state.set_active_bank(control_type, bank_id)
+        self._state.set_active_bank(category, bank_id)
 
     # Callback registration
 
@@ -739,18 +742,18 @@ class Controller:
         """
         self._callbacks.register_global(callback, signal_type)
 
-    def on_bank_change(self, control_type: ControlType, callback) -> None:
+    def on_bank_change(self, category: str, callback) -> None:
         """
         Register callback for bank changes.
 
         Args:
-            control_type: Type of controls in bank
+            category: Control category (e.g., "pad", "knob")
             callback: Function(bank_id: str) -> None
 
         Note:
             Only fires if controller supports bank feedback.
         """
-        self._callbacks.register_bank(control_type, callback)
+        self._callbacks.register_bank(category, callback)
 
     # Processing
 
@@ -965,11 +968,12 @@ class Controller:
         # Check for bank switch
         bank_id = self._plugin.translate_bank_switch(msg)
         if bank_id:
-            # Determine control type from message (simplified)
-            # In practice, plugin should provide this information
-            control_type = ControlType.TOGGLE  # Default
-            self._state.set_active_bank(control_type, bank_id)
-            self._callbacks.on_bank_change(control_type, bank_id)
+            # Find which category this bank belongs to from bank definitions
+            for bank_def in self._plugin.get_bank_definitions():
+                if bank_def.bank_id == bank_id:
+                    self._state.set_active_bank(bank_def.category, bank_id)
+                    self._callbacks.on_bank_change(bank_def.category, bank_id)
+                    break
             return
 
         # Translate MIDI to control with signal type
@@ -1034,6 +1038,7 @@ class Controller:
 
         Also detects bank changes from control_id suffix and triggers
         layout refresh to update the TUI with the new bank's controls.
+        Tracks banks per category (e.g., pad bank and knob bank independently).
 
         Args:
             control_id: ID of the control that changed
@@ -1045,13 +1050,16 @@ class Controller:
         # Detect bank change from control_id (e.g., "pad_1@bank_2" -> "bank_2")
         if "@" in control_id:
             bank = control_id.split("@")[1]
-            if bank != self._last_debug_bank:
-                self._last_debug_bank = bank
-                # Refresh layout with new bank
+            # Look up the control's category to track per-category banks
+            control = self._state.get_control(control_id)
+            category = control.definition.category if control else None
+            if category and self._last_debug_banks.get(category) != bank:
+                self._last_debug_banks[category] = bank
+                # Refresh layout with new bank info
                 layout = self._plugin.get_debug_layout()
                 if layout:
-                    self._broadcaster.broadcast_layout_change(layout, bank)
-                    logger.debug(f"TUI layout refreshed for bank: {bank}")
+                    self._broadcaster.broadcast_layout_change(layout, self._last_debug_banks)
+                    logger.debug(f"TUI layout refreshed for {category} bank: {bank}")
 
         # Broadcast the state change
         self._broadcaster.broadcast_state_change(control_id, state)

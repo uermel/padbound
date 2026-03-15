@@ -488,11 +488,12 @@ class AkaiLPD8MK2Plugin(ControllerPlugin):
 
         Each bank corresponds to one of the LPD8 MK2's 4 programs.
         Banks are distinguished by MIDI channel.
+        All controls switch banks together on this controller.
         """
         return [
             BankDefinition(
                 bank_id=f"bank_{i}",
-                control_type=ControlType.TOGGLE,  # Primary control type (pads)
+                category="pad",  # All controls switch together
                 display_name=f"Bank {i}",
             )
             for i in range(1, self.BANK_COUNT + 1)

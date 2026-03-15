@@ -126,6 +126,22 @@ def on_knob_change(control_id: str, state: ControlState):
     print(f"[KNOB {bank_letter}-{knob_num}] {value:3d}/127 [{bar:<31s}]")
 
 
+def on_pad_bank_change(bank_id: str):
+    """Callback for pad bank changes."""
+    bank_letter = bank_id.replace("bank_", "").upper()
+    print(f"\n{'='*60}")
+    print(f"[PAD BANK SWITCH] Switched to {bank_id} (Bank {bank_letter})")
+    print(f"{'='*60}\n")
+
+
+def on_knob_bank_change(bank_id: str):
+    """Callback for knob bank changes."""
+    bank_letter = bank_id.replace("bank_", "").upper()
+    print(f"\n{'='*60}")
+    print(f"[KNOB BANK SWITCH] Switched to {bank_id} (Bank {bank_letter})")
+    print(f"{'='*60}\n")
+
+
 def on_any_control(control_id: str, state: ControlState):
     """Callback for any control change (for debugging)."""
     logger.debug(f"[ANY] {control_id} changed: {state}")
@@ -169,6 +185,11 @@ def main():
     # Type-based callback for knobs
     controller.on_type(ControlType.CONTINUOUS, on_knob_change)
     print("   Registered callback for knobs (type=CONTINUOUS)")
+
+    # Bank change callbacks (separate for pads and knobs)
+    controller.on_bank_change("pad", on_pad_bank_change)
+    controller.on_bank_change("knob", on_knob_bank_change)
+    print("   Registered pad and knob bank change callbacks")
 
     # Global callback for debugging
     controller.on_global(on_any_control)

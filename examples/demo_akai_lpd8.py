@@ -186,7 +186,7 @@ def main():
     print("   ✓ Registered global callback")
 
     # Bank change callback
-    controller.on_bank_change(ControlType.TOGGLE, on_bank_change)
+    controller.on_bank_change("pad", on_bank_change)
     print("   ✓ Registered bank change callback")
 
     # Connect to controller

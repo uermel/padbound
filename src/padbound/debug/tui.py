@@ -449,7 +449,7 @@ class ControllerStateApp(App):
 
         elif isinstance(msg, LayoutChangeMessage):
             # Layout changed (e.g., bank switch)
-            self.notify(f"Layout changed: bank={msg.current_bank}")
+            self.notify(f"Layout changed: banks={msg.current_banks}")
             if msg.layout:
                 await self._build_layout(msg.layout)
                 # Apply current states to the new layout
@@ -457,8 +457,14 @@ class ControllerStateApp(App):
                     await self._apply_full_state(self._cached_states)
             # Update status bar with bank info
             status = self.query_one("#status", Static)
-            if msg.current_bank:
-                status.update(Text(f"Connected to {self._plugin_name} [{msg.current_bank}]", style="green"))
+            if msg.current_banks:
+                # If all categories share the same bank, show single bank
+                unique_banks = set(msg.current_banks.values())
+                if len(unique_banks) == 1:
+                    bank_display = next(iter(unique_banks))
+                else:
+                    bank_display = " | ".join(f"{cat}: {bank}" for cat, bank in sorted(msg.current_banks.items()))
+                status.update(Text(f"Connected to {self._plugin_name} [{bank_display}]", style="green"))
 
         elif isinstance(msg, StateChangeMessage):
             # Single control update - cache by base ID for cross-bank matching

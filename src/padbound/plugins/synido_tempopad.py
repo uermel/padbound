@@ -509,9 +509,10 @@ class SynidoTempoPADPlugin(ControllerPlugin):
     DEFAULT_CHANNEL = 1
 
     def __init__(self):
-        """Initialize plugin with bank tracking."""
+        """Initialize plugin with separate pad/knob bank tracking."""
         super().__init__()
-        self._last_active_bank: str = "bank_a"
+        self._last_pad_bank: str = "bank_a"
+        self._last_knob_bank: str = "bank_a"
         self._current_config: Optional[TempoPADFullConfig] = None
         # Store callbacks for runtime queries
         self._send_message: Optional[Callable[[mido.Message], None]] = None
@@ -539,26 +540,17 @@ class SynidoTempoPADPlugin(ControllerPlugin):
 
     def get_bank_definitions(self) -> list[BankDefinition]:
         """
-        Define 3 pad/knob banks.
+        Define 3 pad banks and 3 knob banks (independent).
 
-        Banks are detected by note range since pads send different notes per bank.
+        Banks are detected by note range (pads) and CC range (knobs).
         """
         return [
-            BankDefinition(
-                bank_id="bank_a",
-                control_type=ControlType.TOGGLE,
-                display_name="Bank A",
-            ),
-            BankDefinition(
-                bank_id="bank_b",
-                control_type=ControlType.TOGGLE,
-                display_name="Bank B",
-            ),
-            BankDefinition(
-                bank_id="bank_c",
-                control_type=ControlType.TOGGLE,
-                display_name="Bank C",
-            ),
+            BankDefinition(bank_id="bank_a", category="pad", display_name="Bank A"),
+            BankDefinition(bank_id="bank_b", category="pad", display_name="Bank B"),
+            BankDefinition(bank_id="bank_c", category="pad", display_name="Bank C"),
+            BankDefinition(bank_id="bank_a", category="knob", display_name="Bank A"),
+            BankDefinition(bank_id="bank_b", category="knob", display_name="Bank B"),
+            BankDefinition(bank_id="bank_c", category="knob", display_name="Bank C"),
         ]
 
     def get_control_definitions(self) -> list[ControlDefinition]:
@@ -725,7 +717,8 @@ class SynidoTempoPADPlugin(ControllerPlugin):
         Translate MIDI input with bank detection from note range.
 
         Since all banks share the same MIDI channel, we detect the active
-        bank from the note number for pad messages.
+        bank from the note number for pads and CC number for knobs.
+        Pad and knob banks are tracked independently.
 
         Returns:
             (control_id, value, signal_type) or None
@@ -744,10 +737,10 @@ class SynidoTempoPADPlugin(ControllerPlugin):
             # Check which pad bank this note belongs to
             for bank_id, (start_note, end_note) in self.BANK_NOTE_RANGES.items():
                 if start_note <= note <= end_note:
-                    # Update active bank tracking
-                    if bank_id != self._last_active_bank:
-                        logger.debug(f"TempoPAD bank switch: {self._last_active_bank} -> {bank_id}")
-                        self._last_active_bank = bank_id
+                    # Update pad bank tracking
+                    if bank_id != self._last_pad_bank:
+                        logger.debug(f"TempoPAD pad bank switch: {self._last_pad_bank} -> {bank_id}")
+                        self._last_pad_bank = bank_id
 
                     pad_num = note - start_note + 1
                     control_id = f"pad_{pad_num}@{bank_id}"
@@ -762,6 +755,11 @@ class SynidoTempoPADPlugin(ControllerPlugin):
             for bank_id in self.BANK_IDS:
                 knob_ccs = self.DEFAULT_KNOB_CCS[bank_id]
                 if cc in knob_ccs:
+                    # Update knob bank tracking
+                    if bank_id != self._last_knob_bank:
+                        logger.debug(f"TempoPAD knob bank switch: {self._last_knob_bank} -> {bank_id}")
+                        self._last_knob_bank = bank_id
+
                     knob_num = knob_ccs.index(cc) + 1
                     control_id = f"knob_{knob_num}@{bank_id}"
                     return (control_id, msg.value, "default")
@@ -853,7 +851,8 @@ class SynidoTempoPADPlugin(ControllerPlugin):
             self._current_config = None
 
         # Default to bank A
-        self._last_active_bank = "bank_a"
+        self._last_pad_bank = "bank_a"
+        self._last_knob_bank = "bank_a"
 
         logger.info("TempoPAD initialization complete")
         return None
@@ -1083,7 +1082,8 @@ class SynidoTempoPADPlugin(ControllerPlugin):
         Rec  Play Loop
         """
         controls = []
-        bank_id = self._last_active_bank or "bank_a"
+        pad_bank = self._last_pad_bank
+        knob_bank = self._last_knob_bank
 
         # Knobs (cols 0-1, rows 0-1)
         # Row 0: knobs 3, 4 | Row 1: knobs 1, 2
@@ -1095,7 +1095,7 @@ class SynidoTempoPADPlugin(ControllerPlugin):
             for col, knob_num in enumerate(knob_row):
                 controls.append(
                     ControlPlacement(
-                        control_id=f"knob_{knob_num}@{bank_id}",
+                        control_id=f"knob_{knob_num}@{knob_bank}",
                         widget_type=ControlWidget.KNOB,
                         row=row,
                         col=col,
@@ -1132,19 +1132,20 @@ class SynidoTempoPADPlugin(ControllerPlugin):
             for col_offset, pad_num in enumerate(pad_row):
                 controls.append(
                     ControlPlacement(
-                        control_id=f"pad_{pad_num}@{bank_id}",
+                        control_id=f"pad_{pad_num}@{pad_bank}",
                         widget_type=ControlWidget.PAD,
                         row=row,
                         col=3 + col_offset,
                     ),
                 )
 
+        bank_desc = f"pads: {pad_bank} | knobs: {knob_bank}" if pad_bank != knob_bank else pad_bank
         return DebugLayout(
             plugin_name=self.name,
-            description=f"Synido TempoPAD P16 - {bank_id}",
+            description=f"Synido TempoPAD P16 - {bank_desc}",
             sections=[
                 LayoutSection(
-                    name=f"TempoPAD - {bank_id}",
+                    name=f"TempoPAD - {bank_desc}",
                     controls=controls,
                     rows=4,
                     cols=7,
