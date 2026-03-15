@@ -131,6 +131,7 @@ from padbound.controls import (
     LEDAnimationType,
     LEDMode,
 )
+from padbound.debug.layout import ControlPlacement, ControlWidget, DebugLayout, LayoutSection
 from padbound.logging_config import get_logger
 from padbound.plugin import (
     BatchFeedbackResult,
@@ -533,7 +534,8 @@ class PreSonusAtomPlugin(ControllerPlugin):
     def translate_feedback(
         self,
         control_id: str,
-        state_dict: dict,
+        state: ControlState,
+        definition: ControlDefinition,
     ) -> list[mido.Message]:
         """
         Translate control state to LED feedback.
@@ -545,7 +547,8 @@ class PreSonusAtomPlugin(ControllerPlugin):
 
         Args:
             control_id: Control being updated
-            state_dict: New state (is_on, value, color, etc.)
+            state: Current control state (is_on, value, color, led_mode, etc.)
+            definition: Control definition (on_led_mode, off_led_mode, colors, capabilities)
 
         Returns:
             List of MIDI messages for LED control
@@ -567,9 +570,13 @@ class PreSonusAtomPlugin(ControllerPlugin):
             pad_note = self.PAD_START_NOTE + pad_num - 1
 
             # Determine LED state and color
-            is_on = state_dict.get("is_on", False)
-            color_str = state_dict.get("color", "off")
-            led_mode = state_dict.get("led_mode", "solid")
+            is_on = state.is_on or False
+            color_str = state.color or "off"
+            # Compute definition_led_mode from definition based on is_on state
+            definition_led_mode = definition.on_led_mode if is_on else definition.off_led_mode
+            # Use state's led_mode if set, otherwise fall back to definition's
+            led_mode = state.led_mode or definition_led_mode
+            led_mode_str = led_mode.animation_type.value if led_mode else "solid"
 
             # Parse color
             rgb_color = AtomRGBColor.from_string(color_str)
@@ -581,7 +588,7 @@ class PreSonusAtomPlugin(ControllerPlugin):
                     "pulse": self.LED_BREATHE,  # 2
                     "blink": self.LED_BLINK,  # 1
                 }
-                led_state_value = led_state_map.get(led_mode, self.LED_SOLID)
+                led_state_value = led_state_map.get(led_mode_str, self.LED_SOLID)
             else:
                 # OFF state always uses solid (dim color shown steadily)
                 led_state_value = self.LED_SOLID
@@ -599,7 +606,7 @@ class PreSonusAtomPlugin(ControllerPlugin):
                 return []  # No LED for this button
 
             cc = self.BUTTON_CCS[control_id]
-            is_on = state_dict.get("is_on", False)
+            is_on = state.is_on or False
             value = 127 if is_on else 0
 
             msg = mido.Message("control_change", channel=0, control=cc, value=value)
@@ -610,7 +617,7 @@ class PreSonusAtomPlugin(ControllerPlugin):
 
     def translate_feedback_batch(
         self,
-        updates: list[tuple[str, dict]],
+        updates: list[tuple[str, ControlState, ControlDefinition]],
     ) -> BatchFeedbackResult:
         """
         Translate multiple control states to MIDI feedback in a batch.
@@ -622,14 +629,14 @@ class PreSonusAtomPlugin(ControllerPlugin):
         No timing delays are needed for this controller.
 
         Args:
-            updates: List of (control_id, state_dict) tuples to process.
+            updates: List of (control_id, state, definition) tuples to process.
 
         Returns:
             BatchFeedbackResult with all messages, no custom delays.
         """
         messages = []
-        for control_id, state_dict in updates:
-            messages.extend(self.translate_feedback(control_id, state_dict))
+        for control_id, state, definition in updates:
+            messages.extend(self.translate_feedback(control_id, state, definition))
         return BatchFeedbackResult(messages=messages)
 
     def translate_input(self, msg: mido.Message) -> Optional[tuple[str, int, str]]:
@@ -715,3 +722,115 @@ class PreSonusAtomPlugin(ControllerPlugin):
             )
 
         return (None, True)  # Use default handling for other controls
+
+    def get_debug_layout(self) -> DebugLayout:
+        """
+        Define TUI layout matching physical PreSonus Atom layout.
+
+        Physical layout (6 cols × 11 rows):
+        - Col 0: Left button column (setup, set_loop, editor, nudge, show_hide,
+                 preset, bank, full_level, note_repeat, shift)
+        - Cols 1-4: 4 encoders (row 0), then 4×4 pad grid (rows 1-4)
+        - Col 5: Right button column (up, down, left, right, select, zoom,
+                 empty, click, record, play, stop)
+
+        Pad numbering (matches physical layout):
+            13 14 15 16  (row 1)
+             9 10 11 12  (row 2)
+             5  6  7  8  (row 3)
+             1  2  3  4  (row 4)
+        """
+        controls = []
+
+        # Left column buttons (col 0, rows 0-9)
+        left_buttons = [
+            ("setup", "Setup"),
+            ("set_loop", "Loop"),
+            ("event_editor", "Edit"),
+            ("event_nudge", "Nudge"),
+            ("inst_show_hide", "Show"),
+            ("preset_up_down", "Preset"),
+            ("inst_bank", "Bank"),
+            ("full_level", "Full"),
+            ("note_repeat", "Repeat"),
+            ("shift", "Shift"),
+        ]
+        for row, (btn_id, label) in enumerate(left_buttons):
+            controls.append(
+                ControlPlacement(
+                    control_id=btn_id,
+                    widget_type=ControlWidget.BUTTON,
+                    row=row,
+                    col=0,
+                    label=label,
+                ),
+            )
+
+        # Encoders (row 0, cols 1-4)
+        for i in range(1, 5):
+            controls.append(
+                ControlPlacement(
+                    control_id=f"encoder_{i}",
+                    widget_type=ControlWidget.ENCODER,
+                    row=0,
+                    col=i,
+                    label=f"E{i}",
+                ),
+            )
+
+        # 4×4 pad grid (rows 1-4, cols 1-4)
+        # Pad layout: bottom row is 1-4, top row is 13-16
+        pad_layout = [
+            [13, 14, 15, 16],  # row 1
+            [9, 10, 11, 12],  # row 2
+            [5, 6, 7, 8],  # row 3
+            [1, 2, 3, 4],  # row 4
+        ]
+        for row_offset, pad_row in enumerate(pad_layout):
+            for col_offset, pad_num in enumerate(pad_row):
+                controls.append(
+                    ControlPlacement(
+                        control_id=f"pad_{pad_num}",
+                        widget_type=ControlWidget.PAD,
+                        row=1 + row_offset,
+                        col=1 + col_offset,
+                    ),
+                )
+
+        # Right column buttons (col 5, rows 0-10, skip row 6 for empty slot)
+        right_buttons = [
+            (0, "nav_up", "Up"),
+            (1, "nav_down", "Down"),
+            (2, "nav_left", "Left"),
+            (3, "nav_right", "Right"),
+            (4, "nav_select", "Sel"),
+            (5, "nav_zoom", "Zoom"),
+            # Row 6 is empty
+            (7, "click", "Click"),
+            (8, "record", "Rec"),
+            (9, "play", "Play"),
+            (10, "stop", "Stop"),
+        ]
+        for row, btn_id, label in right_buttons:
+            controls.append(
+                ControlPlacement(
+                    control_id=btn_id,
+                    widget_type=ControlWidget.BUTTON,
+                    row=row,
+                    col=5,
+                    label=label,
+                ),
+            )
+
+        return DebugLayout(
+            plugin_name=self.name,
+            description="PreSonus ATOM",
+            sections=[
+                LayoutSection(
+                    name="ATOM",
+                    controls=controls,
+                    rows=11,
+                    cols=6,
+                ),
+            ],
+        )

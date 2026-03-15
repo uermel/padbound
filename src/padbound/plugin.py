@@ -9,7 +9,7 @@ and hardware-specific initialization/shutdown sequences.
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Callable, Literal, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Callable, Literal, Optional, Tuple, Union
 
 import mido
 from pydantic import BaseModel, Field
@@ -524,7 +524,12 @@ class ControllerPlugin(ABC):
 
         return None
 
-    def translate_feedback(self, control_id: str, state_dict: dict[str, Any]) -> list[mido.Message]:
+    def translate_feedback(
+        self,
+        control_id: str,
+        state: "ControlState",
+        definition: ControlDefinition,
+    ) -> list[mido.Message]:
         """
         Translate control state to MIDI feedback messages.
 
@@ -532,7 +537,8 @@ class ControllerPlugin(ABC):
 
         Args:
             control_id: Control identifier
-            state_dict: State dictionary (is_on, value, color, etc.)
+            state: Current control state (is_on, value, color, led_mode, etc.)
+            definition: Control definition (on_led_mode, off_led_mode, colors, capabilities)
 
         Returns:
             List of MIDI messages to send (empty if no feedback)
@@ -541,7 +547,7 @@ class ControllerPlugin(ABC):
 
         for mapping in self.get_feedback_mappings():
             if mapping.control_id == control_id:
-                msg = self._build_feedback_message(mapping, state_dict)
+                msg = self._build_feedback_message(mapping, state)
                 if msg:
                     messages.append(msg)
 
@@ -550,7 +556,7 @@ class ControllerPlugin(ABC):
     @abstractmethod
     def translate_feedback_batch(
         self,
-        updates: list[tuple[str, dict[str, Any]]],
+        updates: list[tuple[str, "ControlState", ControlDefinition]],
     ) -> BatchFeedbackResult:
         """
         Translate multiple control states to MIDI feedback in a single batch.
@@ -565,8 +571,9 @@ class ControllerPlugin(ABC):
         - delays: Optional per-message delays (None = use default feedback_message_delay)
 
         Args:
-            updates: List of (control_id, state_dict) tuples to process.
-                    Each state_dict contains: is_on, color, led_mode, value, etc.
+            updates: List of (control_id, state, definition) tuples to process.
+                    state contains: is_on, color, led_mode, value, etc.
+                    definition contains: on_led_mode, off_led_mode, colors, capabilities.
 
         Returns:
             BatchFeedbackResult with messages and optional timing delays.
@@ -574,8 +581,8 @@ class ControllerPlugin(ABC):
         Example implementation (simple, no batch optimization):
             def translate_feedback_batch(self, updates):
                 messages = []
-                for control_id, state_dict in updates:
-                    messages.extend(self.translate_feedback(control_id, state_dict))
+                for control_id, state, definition in updates:
+                    messages.extend(self.translate_feedback(control_id, state, definition))
                 return BatchFeedbackResult(messages=messages)
         """
         pass
@@ -659,25 +666,25 @@ class ControllerPlugin(ABC):
 
         return None
 
-    def _build_feedback_message(self, mapping: FeedbackMapping, state_dict: dict[str, Any]) -> Optional[mido.Message]:
+    def _build_feedback_message(self, mapping: FeedbackMapping, state: "ControlState") -> Optional[mido.Message]:
         """
         Build MIDI message from feedback mapping and state.
 
         Args:
             mapping: Feedback mapping
-            state_dict: State dictionary
+            state: Control state
 
         Returns:
             MIDI message or None
         """
         # Extract value from state based on mapping
         if mapping.value_source == "is_on":
-            value = 127 if state_dict.get("is_on", False) else 0
+            value = 127 if state.is_on else 0
         elif mapping.value_source == "color":
             # Color mapping is controller-specific, subclasses should override
             value = 0
         else:  # "value"
-            value = state_dict.get("value", 0)
+            value = state.value or 0
 
         # Build message based on type
         try:

@@ -197,6 +197,35 @@ class StateBroadcaster:
 
         asyncio.run_coroutine_threadsafe(self._broadcast(message.model_dump_json()), self._loop)
 
+    def broadcast_layout_change(self, layout: "DebugLayout", current_banks: dict[str, str] | None = None) -> None:
+        """
+        Broadcast a layout change to all connected clients.
+
+        This is called when the active bank changes and the TUI needs to
+        rebuild its display with updated control IDs.
+
+        Args:
+            layout: New layout definition from the plugin
+            current_banks: Currently active banks by category (e.g., {"pad": "bank_1", "knob": "bank_2"})
+        """
+        if not self._running or not self._loop:
+            return
+
+        from padbound.debug.messages import LayoutChangeMessage
+
+        message = LayoutChangeMessage.model_construct(
+            type="layout_change",
+            timestamp=datetime.now(),
+            layout=layout,
+            current_banks=current_banks,
+        )
+
+        # Also update cached full state with the new layout
+        if self._cached_full_state:
+            self._cached_full_state = self._cached_full_state.model_copy(update={"layout": layout})
+
+        asyncio.run_coroutine_threadsafe(self._broadcast(message.model_dump_json()), self._loop)
+
     def _run_server(self) -> None:
         """Run the WebSocket server in the background thread."""
         import websockets.asyncio.server

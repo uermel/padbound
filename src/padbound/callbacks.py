@@ -45,7 +45,7 @@ class CallbackManager:
         self._control_callbacks: defaultdict[str, list[tuple[ControlCallback, Optional[str]]]] = defaultdict(list)
         self._type_callbacks: defaultdict[ControlType, list[tuple[TypeCallback, Optional[str]]]] = defaultdict(list)
         self._category_callbacks: defaultdict[str, list[tuple[CategoryCallback, Optional[str]]]] = defaultdict(list)
-        self._bank_callbacks: defaultdict[ControlType, list[BankCallback]] = defaultdict(list)
+        self._bank_callbacks: defaultdict[str, list[BankCallback]] = defaultdict(list)
 
         self._lock = threading.RLock()
 
@@ -116,17 +116,17 @@ class CallbackManager:
                 f"(signal_type: {signal_type or 'all'})",
             )
 
-    def register_bank(self, control_type: ControlType, callback: BankCallback) -> None:
+    def register_bank(self, category: str, callback: BankCallback) -> None:
         """
         Register callback for bank changes.
 
         Args:
-            control_type: Type of controls in bank
+            category: Control category (e.g., "pad", "knob")
             callback: Function(bank_id: str) -> None
         """
         with self._lock:
-            self._bank_callbacks[control_type].append(callback)
-            logger.debug(f"Registered bank callback for type '{control_type}': {callback.__name__}")
+            self._bank_callbacks[category].append(callback)
+            logger.debug(f"Registered bank callback for category '{category}': {callback.__name__}")
 
     # Unregistration methods
 
@@ -212,23 +212,23 @@ class CallbackManager:
                         return True
         return False
 
-    def unregister_bank(self, control_type: ControlType, callback: BankCallback) -> bool:
+    def unregister_bank(self, category: str, callback: BankCallback) -> bool:
         """
         Unregister bank callback.
 
         Args:
-            control_type: Type of controls
+            category: Control category (e.g., "pad", "knob")
             callback: Callback to remove
 
         Returns:
             True if callback was registered and removed
         """
         with self._lock:
-            if control_type in self._bank_callbacks:
-                callbacks = self._bank_callbacks[control_type]
+            if category in self._bank_callbacks:
+                callbacks = self._bank_callbacks[category]
                 if callback in callbacks:
                     callbacks.remove(callback)
-                    logger.debug(f"Unregistered bank callback for type '{control_type}': {callback.__name__}")
+                    logger.debug(f"Unregistered bank callback for category '{category}': {callback.__name__}")
                     return True
         return False
 
@@ -291,17 +291,17 @@ class CallbackManager:
             if filter_type is None or filter_type == signal_type:
                 self._safe_call(callback, control_id, state)
 
-    def on_bank_change(self, control_type: ControlType, bank_id: str) -> None:
+    def on_bank_change(self, category: str, bank_id: str) -> None:
         """
         Dispatch bank change callbacks.
 
         Args:
-            control_type: Type of controls in bank
+            category: Control category (e.g., "pad", "knob")
             bank_id: New active bank ID
         """
         # Copy callbacks under lock
         with self._lock:
-            callbacks = self._bank_callbacks[control_type].copy()
+            callbacks = self._bank_callbacks[category].copy()
 
         # Execute without lock
         for callback in callbacks:

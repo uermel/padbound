@@ -22,6 +22,7 @@ from padbound.controls import (
     ControlType,
     LEDAnimationType,
     MomentaryControl,
+    StateUpdate,
     ToggleControl,
 )
 from padbound.logging_config import get_logger
@@ -94,6 +95,7 @@ class Controller:
         self._debug_host = debug_host
         self._debug_port = debug_port
         self._broadcaster: Optional["StateBroadcaster"] = None
+        self._last_debug_banks: dict[str, str] = {}  # Track active bank per category for TUI layout updates
 
         # Configuration system
         self._controller_config = config
@@ -225,15 +227,19 @@ class Controller:
 
             # Only send feedback for controls with color support and configured colors
             if control.definition.capabilities.supports_feedback and control.definition.off_color is not None:
-                state_dict = {
-                    "is_on": False,
-                    "value": 0,
-                    "color": control.definition.off_color,
-                    "normalized_value": None,
-                    "led_mode": control.definition.off_led_mode,  # OFF state LED mode
-                    "definition_led_mode": control.definition.off_led_mode,  # Configured mode for OFF state
-                }
-                messages = self._plugin.translate_feedback(control.definition.control_id, state_dict)
+                initial_state = ControlState(
+                    control_id=control.definition.control_id,
+                    is_on=False,
+                    value=0,
+                    color=control.definition.off_color,
+                    normalized_value=None,
+                    led_mode=control.definition.off_led_mode,
+                )
+                messages = self._plugin.translate_feedback(
+                    control.definition.control_id,
+                    initial_state,
+                    control.definition,
+                )
                 for msg in messages:
                     self._send_message(msg)
                     # Add inter-message delay if device needs it (prevents buffer overflow)
@@ -310,28 +316,38 @@ class Controller:
         self._connected = False
         logger.info("Controller disconnected")
 
-    def reconfigure(self, config: Optional["ControllerConfig"] = None) -> None:
+    def reconfigure(
+        self,
+        config: Optional["ControllerConfig"] = None,
+        update_in_memory_only: bool = False,
+    ) -> None:
         """
-        Reprogram device memory with new configuration (if supported).
+        Update control configuration at runtime.
 
-        Updates persistent configuration in device memory. Configuration changes
-        persist across program switches and potentially power cycles.
+        This method:
+        1. Always updates in-memory ControlDefinitions (colors, LED modes)
+        2. Optionally programs device memory if supports_persistent_configuration
+           and update_in_memory_only=False
 
         Useful for:
-        - Changing color schemes at runtime
+        - Changing color schemes at runtime (e.g., napari label colors)
         - Switching control types (toggle ↔ momentary)
         - Adjusting MIDI channels
         - Modifying knob ranges
 
         Args:
-            config: New configuration, or None to reprogram current config
+            config: New configuration, or None to re-apply current config
+            update_in_memory_only: If True, only update in-memory definitions
+                                   without programming device memory. Useful for
+                                   frequent updates (e.g., napari label color changes).
+                                   If False (default), also programs device memory
+                                   when supports_persistent_configuration is True.
 
         Raises:
             RuntimeError: If not connected
-            NotImplementedError: If plugin doesn't support persistent configuration
 
         Example:
-            # Change all pad colors to blue
+            # Change all pad colors to blue (with device programming if supported)
             new_config = ControllerConfig(banks={
                 "bank_1": BankConfig(controls={
                     f"pad_{i}": ControlConfig(color="blue")
@@ -339,21 +355,16 @@ class Controller:
                 })
             })
             controller.reconfigure(new_config)
+
+            # Quick in-memory update (no device programming)
+            controller.reconfigure(label_config, update_in_memory_only=True)
         """
-
         self._ensure_connected()
-
-        if not self._state.capabilities.supports_persistent_configuration:
-            raise NotImplementedError(f"Plugin '{self._plugin.name}' does not support persistent configuration")
 
         # Use provided config or current config
         if config:
-            # TODO: Consider validating and merging with current config
-            # For now, replace entirely
             self._controller_config = config
-
-            # TODO: If control types changed, may need to rebuild Control objects
-            # For initial implementation, focus on colors
+            self._config_resolver = ControlConfigResolver(config)
 
         config_to_use = config or self._controller_config
 
@@ -361,11 +372,15 @@ class Controller:
             logger.warning("No configuration available to program")
             return
 
-        # Reprogram device
-        logger.info("Reprogramming device with new configuration")
-        self._plugin.configure_programs(self._send_message, config_to_use)
+        # Step 1: Update in-memory control definitions
+        self._update_control_definitions_from_config()
 
-        logger.info("Device reconfiguration complete")
+        # Step 2: Program device memory (if supported and requested)
+        if not update_in_memory_only and self._state.capabilities.supports_persistent_configuration:
+            logger.info("Reprogramming device with new configuration")
+            self._plugin.configure_programs(self._send_message, config_to_use)
+
+        logger.info("Reconfiguration complete")
 
     # State query methods
 
@@ -426,7 +441,7 @@ class Controller:
 
     # Programmatic state control
 
-    def set_state(self, control_id: str, **kwargs) -> None:
+    def set_state(self, control_id: str, update: StateUpdate) -> None:
         """
         Set control state programmatically (sends hardware feedback).
 
@@ -436,15 +451,15 @@ class Controller:
 
         Args:
             control_id: Control identifier
-            **kwargs: State parameters (is_on, value, color, etc.)
+            update: StateUpdate with values to set
 
         Raises:
             ValueError: If control not found
             CapabilityError: If operation unsupported (strict mode only)
 
         Example:
-            controller.set_state('pad_1', is_on=True, color='red')
-            controller.set_state('fader_1', value=64)
+            controller.set_state('pad_1', StateUpdate(is_on=True, color='red'))
+            controller.set_state('fader_1', StateUpdate(value=64))
         """
         self._ensure_connected()
 
@@ -461,33 +476,35 @@ class Controller:
             return
 
         # Validate specific operations
-        if "value" in kwargs and not capabilities.supports_value_setting:
+        if update.value is not None and not capabilities.supports_value_setting:
             self._handle_unsupported_operation(f"Control '{control_id}' does not support value setting (not motorized)")
             return
 
-        if "color" in kwargs:
+        if update.color is not None:
             if not capabilities.supports_color:
                 self._handle_unsupported_operation(f"Control '{control_id}' does not support color")
                 return
 
             # Validate color against palette
-            if not self._state.validate_color(control_id, kwargs["color"]):
-                color = kwargs["color"]
+            if not self._state.validate_color(control_id, update.color):
                 palette = capabilities.color_palette
                 self._handle_unsupported_operation(
-                    f"Color '{color}' not in palette {palette} for control '{control_id}'",
+                    f"Color '{update.color}' not in palette {palette} for control '{control_id}'",
                 )
                 return
 
         # All checks passed - translate to MIDI and send
         if self._plugin:
-            # Include definition LED mode for plugins that need it (e.g., APC mini MK2)
-            if "definition_led_mode" not in kwargs:
-                is_on = kwargs.get("is_on", False)
-                kwargs["definition_led_mode"] = (
-                    control.definition.on_led_mode if is_on else control.definition.off_led_mode
-                )
-            messages = self._plugin.translate_feedback(control_id, kwargs)
+            # Build a ControlState from update for the plugin
+            feedback_state = ControlState(
+                control_id=control_id,
+                is_on=update.is_on,
+                value=update.value,
+                color=update.color,
+                normalized_value=update.normalized_value,
+                led_mode=update.led_mode,
+            )
+            messages = self._plugin.translate_feedback(control_id, feedback_state, control.definition)
             feedback_delay = self._state.capabilities.feedback_message_delay
             for msg in messages:
                 self._send_message(msg)
@@ -495,7 +512,7 @@ class Controller:
                 if feedback_delay > 0:
                     time.sleep(feedback_delay)
 
-    def can_set_state(self, control_id: str, **kwargs) -> bool:
+    def can_set_state(self, control_id: str, update: StateUpdate) -> bool:
         """
         Check if set_state() would succeed.
 
@@ -504,7 +521,7 @@ class Controller:
 
         Args:
             control_id: Control identifier
-            **kwargs: State parameters to check
+            update: StateUpdate to check
 
         Returns:
             True if operation supported, False otherwise
@@ -522,13 +539,13 @@ class Controller:
             if not capabilities.supports_feedback:
                 return False
 
-            if "value" in kwargs and not capabilities.supports_value_setting:
+            if update.value is not None and not capabilities.supports_value_setting:
                 return False
 
-            if "color" in kwargs:
+            if update.color is not None:
                 if not capabilities.supports_color:
                     return False
-                if not self._state.validate_color(control_id, kwargs["color"]):
+                if not self._state.validate_color(control_id, update.color):
                     return False
 
             return True
@@ -538,7 +555,7 @@ class Controller:
 
     def set_states(
         self,
-        updates: list[tuple[str, dict]],
+        updates: list[tuple[str, StateUpdate]],
     ) -> None:
         """
         Set multiple control states in a batch (sends hardware feedback).
@@ -548,8 +565,7 @@ class Controller:
         translate_feedback_batch() method.
 
         Args:
-            updates: List of (control_id, state_dict) tuples.
-                     Each state_dict can contain: is_on, color, led_mode, value
+            updates: List of (control_id, StateUpdate) tuples.
 
         Raises:
             RuntimeError: If not connected
@@ -558,8 +574,8 @@ class Controller:
 
         Example:
             controller.set_states([
-                ('pad_1', {'is_on': True, 'color': 'red', 'led_mode': 'pulse'}),
-                ('pad_2', {'is_on': True, 'color': 'blue', 'led_mode': 'solid'}),
+                ('pad_1', StateUpdate(is_on=True, color='red', led_mode=LEDMode(...))),
+                ('pad_2', StateUpdate(is_on=True, color='blue')),
             ])
         """
         self._ensure_connected()
@@ -568,8 +584,8 @@ class Controller:
             return
 
         # Validate all controls first (fail fast)
-        validated_updates: list[tuple[str, dict]] = []
-        for control_id, kwargs in updates:
+        validated_updates: list[tuple[str, ControlState, ControlDefinition]] = []
+        for control_id, update in updates:
             control = self._state.get_control(control_id)
             if not control:
                 raise ValueError(f"Unknown control: {control_id}")
@@ -582,28 +598,30 @@ class Controller:
                 continue
 
             # Validate color
-            if "color" in kwargs:
+            if update.color is not None:
                 if not capabilities.supports_color:
                     self._handle_unsupported_operation(f"Control '{control_id}' does not support color")
                     continue
-                if not self._state.validate_color(control_id, kwargs["color"]):
-                    self._handle_unsupported_operation(f"Color '{kwargs['color']}' not valid for '{control_id}'")
+                if not self._state.validate_color(control_id, update.color):
+                    self._handle_unsupported_operation(f"Color '{update.color}' not valid for '{control_id}'")
                     continue
 
             # Validate value setting
-            if "value" in kwargs and not capabilities.supports_value_setting:
+            if update.value is not None and not capabilities.supports_value_setting:
                 self._handle_unsupported_operation(f"Control '{control_id}' does not support value setting")
                 continue
 
-            # Add definition LED mode based on is_on state
-            state_dict = dict(kwargs)
-            if "definition_led_mode" not in state_dict:
-                is_on = state_dict.get("is_on", False)
-                state_dict["definition_led_mode"] = (
-                    control.definition.on_led_mode if is_on else control.definition.off_led_mode
-                )
+            # Build a ControlState from update for the plugin
+            feedback_state = ControlState(
+                control_id=control_id,
+                is_on=update.is_on,
+                value=update.value,
+                color=update.color,
+                normalized_value=update.normalized_value,
+                led_mode=update.led_mode,
+            )
 
-            validated_updates.append((control_id, state_dict))
+            validated_updates.append((control_id, feedback_state, control.definition))
 
         if not validated_updates or not self._plugin:
             return
@@ -623,7 +641,7 @@ class Controller:
         # Update internal control states to match what we sent to hardware.
         # This ensures auto-feedback (triggered by physical pad press) uses
         # the correct color/led_mode instead of stale default values.
-        for control_id, state_dict in validated_updates:
+        for control_id, feedback_state, _ in validated_updates:
             control = self._state.get_control(control_id)
             if control:
                 current_state = control._state
@@ -631,19 +649,22 @@ class Controller:
                     control_id=control_id,
                     is_discovered=current_state.is_discovered,
                     first_discovered_at=current_state.first_discovered_at,
-                    value=state_dict.get("value", current_state.value),
+                    value=feedback_state.value if feedback_state.value is not None else current_state.value,
                     normalized_value=current_state.normalized_value,
-                    is_on=state_dict.get("is_on", current_state.is_on),
-                    color=state_dict.get("color", current_state.color),
-                    led_mode=state_dict.get("led_mode", current_state.led_mode),
+                    is_on=feedback_state.is_on if feedback_state.is_on is not None else current_state.is_on,
+                    color=feedback_state.color if feedback_state.color is not None else current_state.color,
+                    led_mode=feedback_state.led_mode if feedback_state.led_mode is not None else current_state.led_mode,
                 )
                 self._state.set_control_state(control_id, new_state)
 
     # Bank management
 
-    def get_active_bank(self, control_type: ControlType) -> Optional[str]:
+    def get_active_bank(self, category: str) -> Optional[str]:
         """
-        Get active bank for control type.
+        Get active bank for control category.
+
+        Args:
+            category: Control category (e.g., "pad", "knob")
 
         Returns:
             Bank ID if tracking supported and set, None otherwise
@@ -654,21 +675,21 @@ class Controller:
             but cannot tell you which bank is currently active.
         """
         self._ensure_connected()
-        return self._state.get_active_bank(control_type)
+        return self._state.get_active_bank(category)
 
-    def set_active_bank(self, control_type: ControlType, bank_id: str) -> None:
+    def set_active_bank(self, category: str, bank_id: str) -> None:
         """
-        Set active bank for control type.
+        Set active bank for control category.
 
         Args:
-            control_type: Type of controls
+            category: Control category (e.g., "pad", "knob")
             bank_id: Bank identifier
 
         Note:
             Silent no-op if bank tracking not supported.
         """
         self._ensure_connected()
-        self._state.set_active_bank(control_type, bank_id)
+        self._state.set_active_bank(category, bank_id)
 
     # Callback registration
 
@@ -721,18 +742,18 @@ class Controller:
         """
         self._callbacks.register_global(callback, signal_type)
 
-    def on_bank_change(self, control_type: ControlType, callback) -> None:
+    def on_bank_change(self, category: str, callback) -> None:
         """
         Register callback for bank changes.
 
         Args:
-            control_type: Type of controls in bank
+            category: Control category (e.g., "pad", "knob")
             callback: Function(bank_id: str) -> None
 
         Note:
             Only fires if controller supports bank feedback.
         """
-        self._callbacks.register_bank(control_type, callback)
+        self._callbacks.register_bank(category, callback)
 
     # Processing
 
@@ -848,6 +869,36 @@ class Controller:
 
         return control
 
+    def _update_control_definitions_from_config(self) -> None:
+        """
+        Re-resolve configuration and update all control definitions.
+
+        Called by reconfigure() to update in-memory ControlDefinitions
+        when configuration changes. This ensures that toggle behavior
+        uses the correct colors/LED modes.
+        """
+        if not self._plugin:
+            return
+
+        for control_def in self._plugin.get_control_definitions():
+            control = self._state.get_control(control_def.control_id)
+            if not control:
+                continue
+
+            # Re-resolve configuration for this control
+            actual_type, on_color, off_color, on_led_mode, off_led_mode = self._config_resolver.resolve_config(
+                control_def.control_id,
+                control_def,
+            )
+
+            # Update the control's definition with new colors/LED modes
+            control.update_definition(
+                on_color=on_color,
+                off_color=off_color,
+                on_led_mode=on_led_mode,
+                off_led_mode=off_led_mode,
+            )
+
     def _send_message(self, msg: mido.Message) -> None:
         """Send MIDI message (internal)."""
         if self._midi:
@@ -880,21 +931,23 @@ class Controller:
                 continue
 
             # Determine color based on current state
-            state = control.state
-            color = control.definition.on_color if state.is_on else control.definition.off_color
+            current_state = control.state
+            color = control.definition.on_color if current_state.is_on else control.definition.off_color
 
             if not color:
                 continue
 
-            # Build state dict and send feedback
-            state_dict = {
-                "is_on": state.is_on if state.is_on is not None else False,
-                "value": state.value if state.value is not None else 0,
-                "color": color,
-                "normalized_value": state.normalized_value,
-            }
+            # Build feedback state with the appropriate color
+            feedback_state = ControlState(
+                control_id=control_def.control_id,
+                is_on=current_state.is_on if current_state.is_on is not None else False,
+                value=current_state.value if current_state.value is not None else 0,
+                color=color,
+                normalized_value=current_state.normalized_value,
+                led_mode=current_state.led_mode,
+            )
 
-            messages = self._plugin.translate_feedback(control_def.control_id, state_dict)
+            messages = self._plugin.translate_feedback(control_def.control_id, feedback_state, control.definition)
             for msg in messages:
                 self._send_message(msg)
 
@@ -915,11 +968,12 @@ class Controller:
         # Check for bank switch
         bank_id = self._plugin.translate_bank_switch(msg)
         if bank_id:
-            # Determine control type from message (simplified)
-            # In practice, plugin should provide this information
-            control_type = ControlType.TOGGLE  # Default
-            self._state.set_active_bank(control_type, bank_id)
-            self._callbacks.on_bank_change(control_type, bank_id)
+            # Find which category this bank belongs to from bank definitions
+            for bank_def in self._plugin.get_bank_definitions():
+                if bank_def.bank_id == bank_id:
+                    self._state.set_active_bank(bank_def.category, bank_id)
+                    self._callbacks.on_bank_change(bank_def.category, bank_id)
+                    break
             return
 
         # Translate MIDI to control with signal type
@@ -965,21 +1019,9 @@ class Controller:
             logger.debug(
                 f"Auto-feedback check for {control_id}: requires_feedback={control.definition.capabilities.requires_feedback}",
             )
-            if control.definition.capabilities.requires_feedback:
-                # Convert ControlState to dict for translate_feedback
-                # definition_led_mode is based on is_on state (on_led_mode or off_led_mode)
-                definition_led_mode = (
-                    control.definition.on_led_mode if new_state.is_on else control.definition.off_led_mode
-                )
-                state_dict = {
-                    "is_on": new_state.is_on,
-                    "value": new_state.value,
-                    "color": new_state.color,
-                    "normalized_value": new_state.normalized_value,
-                    "led_mode": new_state.led_mode,
-                    "definition_led_mode": definition_led_mode,
-                }
-                messages = self._plugin.translate_feedback(control_id, state_dict)
+            if control.definition.capabilities.requires_feedback and trigger_callback:
+                # Pass the new state and definition directly to the plugin
+                messages = self._plugin.translate_feedback(control_id, new_state, control.definition)
                 feedback_delay = self._state.capabilities.feedback_message_delay
                 for feedback_msg in messages:
                     self._send_message(feedback_msg)
@@ -994,9 +1036,30 @@ class Controller:
         """
         Callback to broadcast state changes to debug clients.
 
+        Also detects bank changes from control_id suffix and triggers
+        layout refresh to update the TUI with the new bank's controls.
+        Tracks banks per category (e.g., pad bank and knob bank independently).
+
         Args:
             control_id: ID of the control that changed
             state: New state of the control
         """
-        if self._broadcaster:
-            self._broadcaster.broadcast_state_change(control_id, state)
+        if not self._broadcaster:
+            return
+
+        # Detect bank change from control_id (e.g., "pad_1@bank_2" -> "bank_2")
+        if "@" in control_id:
+            bank = control_id.split("@")[1]
+            # Look up the control's category to track per-category banks
+            control = self._state.get_control(control_id)
+            category = control.definition.category if control else None
+            if category and self._last_debug_banks.get(category) != bank:
+                self._last_debug_banks[category] = bank
+                # Refresh layout with new bank info
+                layout = self._plugin.get_debug_layout()
+                if layout:
+                    self._broadcaster.broadcast_layout_change(layout, self._last_debug_banks)
+                    logger.debug(f"TUI layout refreshed for {category} bank: {bank}")
+
+        # Broadcast the state change
+        self._broadcaster.broadcast_state_change(control_id, state)

@@ -88,12 +88,13 @@ with Controller(plugin='auto', auto_connect=True) as controller:
 ### Setting Control State
 
 ```python
-from padbound import Controller
+from padbound import Controller, StateUpdate
 
 with Controller(plugin='auto', auto_connect=True) as controller:
     # Set pad LED color and state
-    if controller.can_set_state('pad_1', is_on=True, color='red'):
-        controller.set_state('pad_1', is_on=True, color='red')
+    update = StateUpdate(is_on=True, color='red')
+    if controller.can_set_state('pad_1', update):
+        controller.set_state('pad_1', update)
 
     # Query control state
     state = controller.get_state('pad_1')

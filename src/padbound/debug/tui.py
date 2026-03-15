@@ -8,6 +8,7 @@ with debug_server enabled.
 
 import argparse
 import asyncio
+import re
 from typing import Optional
 
 from pydantic import TypeAdapter
@@ -20,7 +21,7 @@ from textual.widgets import Footer, Header, Label, Static
 
 from padbound.controls import ControlDefinition, ControlState
 from padbound.debug.layout import ControlWidget, DebugLayout, LayoutSection
-from padbound.debug.messages import DebugMessage, FullStateMessage, StateChangeMessage
+from padbound.debug.messages import DebugMessage, FullStateMessage, LayoutChangeMessage, StateChangeMessage
 from padbound.logging_config import get_logger
 from padbound.utils import RGBColor
 
@@ -47,16 +48,22 @@ class PadWidget(Static):
         self.control_id = control_id
 
     def compose(self) -> ComposeResult:
-        # control_id format: pad_{physical_row}_{col}
+        # Strip bank suffix if present (e.g., "pad_1@bank_1" -> "pad_1")
+        base_id = self.control_id.split("@")[0]
+        parts = base_id.split("_")
+
+        # control_id format for APC mini: pad_{physical_row}_{col}
         # Compute linear index: physical_row * 8 + col (0 = bottom-left)
-        parts = self.control_id.split("_")
         if len(parts) == 3 and parts[0] == "pad":
             physical_row = int(parts[1])
             col = int(parts[2])
             linear_index = physical_row * 8 + col
             yield Label(str(linear_index), id="pad-label")
+        # control_id format for most controllers: pad_{num}
+        elif len(parts) == 2 and parts[0] == "pad":
+            yield Label(parts[1], id="pad-label")
         else:
-            yield Label(self.control_id.split("_")[-1], id="pad-label")
+            yield Label(base_id.split("_")[-1], id="pad-label")
 
     def watch_is_on(self, value: bool) -> None:
         self._update_style()
@@ -68,10 +75,15 @@ class PadWidget(Static):
     def _update_style(self) -> None:
         """Update widget style based on state.
 
-        The color property is always set to the correct display color
-        by _update_control() based on the is_on state, so we just use it directly.
+        Uses color if available (RGB controllers), otherwise falls back
+        to is_on-based coloring for non-RGB controllers (e.g., X-Touch Mini).
         """
-        self.styles.background = self._parse_color(self.color)
+        if self.color:
+            self.styles.background = self._parse_color(self.color)
+        elif self.is_on:
+            self.styles.background = "#00aa00"
+        else:
+            self.styles.background = "#333333"
 
     def _parse_color(self, color: str) -> str:
         """Parse color string to CSS hex color using padbound's RGBColor.
@@ -349,6 +361,7 @@ class ControllerStateApp(App):
         self._layout: Optional[DebugLayout] = None
         self._widgets: dict[str, Static] = {}
         self._definitions: dict[str, ControlDefinition] = {}
+        self._cached_states: dict[str, ControlState] = {}  # Cache for layout rebuilds
         self._connected = False
         self._plugin_name = "Unknown"
 
@@ -432,14 +445,37 @@ class ControllerStateApp(App):
                 self.notify("No layout in full_state message!", severity="warning")
 
             if msg.states:
+                # Cache states by base ID (without bank suffix) for cross-bank matching
+                self._cached_states = {k.split("@")[0]: v for k, v in msg.states.items()}
                 # Debug: show fader values
                 fader_states = {k: v.value for k, v in msg.states.items() if k.startswith("fader_")}
                 if fader_states:
                     self.notify(f"Fader values: {fader_states}")
                 await self._apply_full_state(msg.states)
 
+        elif isinstance(msg, LayoutChangeMessage):
+            # Layout changed (e.g., bank switch)
+            self.notify(f"Layout changed: banks={msg.current_banks}")
+            if msg.layout:
+                await self._build_layout(msg.layout)
+                # Apply current states to the new layout
+                if self._cached_states:
+                    await self._apply_full_state(self._cached_states)
+            # Update status bar with bank info
+            status = self.query_one("#status", Static)
+            if msg.current_banks:
+                # If all categories share the same bank, show single bank
+                unique_banks = set(msg.current_banks.values())
+                if len(unique_banks) == 1:
+                    bank_display = next(iter(unique_banks))
+                else:
+                    bank_display = " | ".join(f"{cat}: {bank}" for cat, bank in sorted(msg.current_banks.items()))
+                status.update(Text(f"Connected to {self._plugin_name} [{bank_display}]", style="green"))
+
         elif isinstance(msg, StateChangeMessage):
-            # Single control update
+            # Single control update - cache by base ID for cross-bank matching
+            base_id = msg.control_id.split("@")[0]
+            self._cached_states[base_id] = msg.state  # Cache for layout rebuilds
             await self._update_control(msg.control_id, msg.state)
 
     async def _build_layout(self, layout: DebugLayout) -> None:
@@ -498,7 +534,9 @@ class ControllerStateApp(App):
                 if col in col_to_placement:
                     placement = col_to_placement[col]
                     widget = self._create_widget(placement, is_last_col=(col == max_col))
-                    self._widgets[placement.control_id] = widget
+                    # Store by base ID (without bank suffix) for cross-bank matching
+                    base_id = placement.control_id.split("@")[0]
+                    self._widgets[base_id] = widget
                     row_widgets.append(widget)
                 else:
                     # Empty placeholder with appropriate size
@@ -518,7 +556,7 @@ class ControllerStateApp(App):
             Static(section.name, classes="section-title"),
             grid,
             classes="section",
-            id=f"section-{section.name.lower().replace(' ', '-')}",
+            id=f"section-{re.sub(r'[^a-z0-9_-]', '-', section.name.lower())}",
         )
 
         return container
@@ -562,7 +600,9 @@ class ControllerStateApp(App):
 
     async def _update_control(self, control_id: str, state: ControlState) -> None:
         """Update a single control widget."""
-        widget = self._widgets.get(control_id)
+        # Look up by base ID (without bank suffix) for cross-bank matching
+        base_id = control_id.split("@")[0]
+        widget = self._widgets.get(base_id)
         if not widget:
             return
 

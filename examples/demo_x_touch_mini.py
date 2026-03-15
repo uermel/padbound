@@ -179,7 +179,7 @@ def main():
     # Create controller instance
     print("\n2. Creating controller instance...")
     plugin = BehringerXTouchMiniPlugin()
-    controller = Controller(plugin=plugin, config=config)
+    controller = Controller(plugin=plugin, config=config, debug_server=True)
     print(f"   Controller created: {plugin.name}")
 
     # Register callbacks
@@ -199,7 +199,7 @@ def main():
     print("   Registered callback for fader (CONTINUOUS)")
 
     # Bank change callback
-    controller.on_bank_change(ControlType.TOGGLE, on_bank_change)
+    controller.on_bank_change("pad", on_bank_change)
     print("   Registered bank change callback")
 
     # Global callback for everything

@@ -66,7 +66,10 @@ from padbound.controls import (
     ControlState,
     ControlType,
     ControlTypeModes,
+    LEDAnimationType,
+    LEDMode,
 )
+from padbound.debug.layout import ControlPlacement, ControlWidget, DebugLayout, LayoutSection
 from padbound.logging_config import get_logger
 from padbound.plugin import (
     BatchFeedbackResult,
@@ -183,10 +186,12 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
     def get_bank_definitions(self) -> list[BankDefinition]:
         """
         Define 2 banks (Layer A and Layer B).
+
+        All controls switch layers together on this controller.
         """
         return [
-            BankDefinition(bank_id="layer_a", control_type=ControlType.TOGGLE, display_name="Layer A"),
-            BankDefinition(bank_id="layer_b", control_type=ControlType.TOGGLE, display_name="Layer B"),
+            BankDefinition(bank_id="layer_a", category="pad", display_name="Layer A"),
+            BankDefinition(bank_id="layer_b", category="pad", display_name="Layer B"),
         ]
 
     def get_control_definitions(self) -> list[ControlDefinition]:
@@ -232,6 +237,7 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
                             supports_feedback=True,
                             requires_feedback=True,  # Library must send LED updates
                             supports_led=True,
+                            supported_led_modes=[LEDMode(animation_type=LEDAnimationType.SOLID)],
                             requires_discovery=False,
                         ),
                         bank_id=layer,
@@ -712,7 +718,12 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
 
         return (None, True)  # Use default behavior for MOMENTARY pads and other controls
 
-    def translate_feedback(self, control_id: str, state_dict: dict) -> list[mido.Message]:
+    def translate_feedback(
+        self,
+        control_id: str,
+        state: ControlState,
+        definition: ControlDefinition,
+    ) -> list[mido.Message]:
         """
         Translate control state to MIDI feedback messages.
 
@@ -723,13 +734,14 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
 
         Args:
             control_id: Control identifier (e.g., "pad_1@layer_a")
-            state_dict: State dictionary (is_on, value, etc.)
+            state: Current control state (is_on, value, color, led_mode, etc.)
+            definition: Control definition (on_led_mode, off_led_mode, colors, capabilities)
 
         Returns:
             List of MIDI messages to send
         """
         messages = []
-        is_on = state_dict.get("is_on", False)
+        is_on = state.is_on or False
 
         # Handle pads
         if "pad_" in control_id and "button" not in control_id:
@@ -759,7 +771,7 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
 
         # Handle knobs (CC for value - used during init)
         elif "knob_" in control_id and "button" not in control_id:
-            value = state_dict.get("value", 64) or 64
+            value = state.value if state.value is not None else 64
             cc = self._get_feedback_cc(control_id)
             if cc is not None:
                 msg = mido.Message("control_change", channel=MIDI_CHANNEL, control=cc, value=value)
@@ -769,7 +781,7 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
 
     def translate_feedback_batch(
         self,
-        updates: list[tuple[str, dict]],
+        updates: list[tuple[str, ControlState, ControlDefinition]],
     ) -> BatchFeedbackResult:
         """
         Translate multiple control states to MIDI feedback in a batch.
@@ -781,14 +793,14 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
         No timing delays are needed for this controller.
 
         Args:
-            updates: List of (control_id, state_dict) tuples to process.
+            updates: List of (control_id, state, definition) tuples to process.
 
         Returns:
             BatchFeedbackResult with all messages, no custom delays.
         """
         messages = []
-        for control_id, state_dict in updates:
-            messages.extend(self.translate_feedback(control_id, state_dict))
+        for control_id, state, definition in updates:
+            messages.extend(self.translate_feedback(control_id, state, definition))
         return BatchFeedbackResult(messages=messages)
 
     def _get_feedback_note(self, control_id: str) -> Optional[int]:
@@ -849,3 +861,87 @@ class BehringerXTouchMiniPlugin(ControllerPlugin):
                 return LAYER_B_KNOBS[knob_num - 1]
 
         return None
+
+    def get_debug_layout(self) -> DebugLayout:
+        """
+        Define TUI layout matching physical X-Touch Mini layout.
+
+        Physical layout (8 cols × 5 rows):
+        - Row 0: 8 encoders (knob value display)
+        - Row 1: 8 encoder buttons
+        - Row 2: Pads 1-8 (top row)
+        - Row 3: Pads 9-16 (bottom row)
+        - Row 4: Fader (separate row to avoid height interference)
+        """
+        controls = []
+        layer_id = self._last_active_bank or "layer_a"
+
+        # Encoders row 0 (knob display)
+        for i in range(1, 9):
+            controls.append(
+                ControlPlacement(
+                    control_id=f"knob_{i}@{layer_id}",
+                    widget_type=ControlWidget.KNOB,
+                    row=0,
+                    col=i - 1,
+                    label=f"E{i}",
+                ),
+            )
+
+        # Encoder buttons row 1
+        for i in range(1, 9):
+            controls.append(
+                ControlPlacement(
+                    control_id=f"knob_button_{i}@{layer_id}",
+                    widget_type=ControlWidget.BUTTON,
+                    row=1,
+                    col=i - 1,
+                    label=f"EB{i}",
+                ),
+            )
+
+        # Pads 1-8 (row 2)
+        for i in range(1, 9):
+            controls.append(
+                ControlPlacement(
+                    control_id=f"pad_{i}@{layer_id}",
+                    widget_type=ControlWidget.PAD,
+                    row=2,
+                    col=i - 1,
+                ),
+            )
+
+        # Pads 9-16 (row 3)
+        for i in range(9, 17):
+            controls.append(
+                ControlPlacement(
+                    control_id=f"pad_{i}@{layer_id}",
+                    widget_type=ControlWidget.PAD,
+                    row=3,
+                    col=i - 9,
+                ),
+            )
+
+        # Fader (row 4, separate row to avoid affecting pad row heights)
+        controls.append(
+            ControlPlacement(
+                control_id=f"fader@{layer_id}",
+                widget_type=ControlWidget.FADER,
+                row=4,
+                col=0,
+                label="Fader",
+            ),
+        )
+
+        return DebugLayout(
+            plugin_name=self.name,
+            description=f"Behringer X-Touch Mini - {layer_id}",
+            sections=[
+                LayoutSection(
+                    name=f"X-Touch Mini - {layer_id}",
+                    controls=controls,
+                    rows=5,
+                    cols=8,
+                ),
+            ],
+        )
