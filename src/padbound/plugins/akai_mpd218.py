@@ -1042,9 +1042,15 @@ class AkaiMPD218Plugin(ControllerPlugin):
         """
         Define TUI layout matching physical MPD218 layout.
 
-        Physical layout:
-        - 4x4 pad grid (pads 1-16, numbered bottom-left to top-right)
-        - 6 knobs in 2 rows of 3 above the pads
+        Physical layout (6 cols × 4 rows):
+        - Cols 0-1: 6 knobs in 3 rows of 2
+        - Cols 2-5: 4x4 pad grid
+
+        Knobs:   Pads:
+        K1  K2   13 14 15 16
+        K3  K4    9 10 11 12
+        K5  K6    5  6  7  8
+         .   .    1  2  3  4
 
         Returns:
             DebugLayout for the state debug TUI
@@ -1053,46 +1059,40 @@ class AkaiMPD218Plugin(ControllerPlugin):
 
         controls = []
 
-        # Knobs (2 rows of 3, at top)
-        # Physical layout:
-        #   K1  K2
-        #   K3  K4
-        #   K5  K6
-        knob_positions = [
-            (0, 0),
-            (0, 1),  # Row 0: K1, K2
-            (1, 0),
-            (1, 1),  # Row 1: K3, K4
-            (2, 0),
-            (2, 1),  # Row 2: K5, K6
+        # Knobs (cols 0-1, rows 0-2)
+        knob_layout = [
+            [1, 2],  # row 0
+            [3, 4],  # row 1
+            [5, 6],  # row 2
         ]
-        for knob_num, (row, col) in enumerate(knob_positions, start=1):
-            controls.append(
-                ControlPlacement(
-                    control_id=f"knob_{knob_num}@{self._last_active_bank}",
-                    widget_type=ControlWidget.KNOB,
-                    row=row,
-                    col=col,
-                    label=f"K{knob_num}",
-                ),
-            )
+        for row, knob_row in enumerate(knob_layout):
+            for col, knob_num in enumerate(knob_row):
+                controls.append(
+                    ControlPlacement(
+                        control_id=f"knob_{knob_num}@{self._last_active_bank}",
+                        widget_type=ControlWidget.KNOB,
+                        row=row,
+                        col=col,
+                        label=f"K{knob_num}",
+                    ),
+                )
 
-        # Pad grid (4x4, rows 3-6)
-        # Physical layout (bottom-left origin):
-        #   P13 P14 P15 P16  (TUI row 3)
-        #   P9  P10 P11 P12  (TUI row 4)
-        #   P5  P6  P7  P8   (TUI row 5)
-        #   P1  P2  P3  P4   (TUI row 6)
-        for tui_row in range(4):
-            physical_row = 3 - tui_row  # Invert: TUI row 0 = physical row 3 (top)
-            for col in range(4):
-                pad_num = physical_row * 4 + col + 1
+        # Pads (cols 2-5, rows 0-3)
+        # Row 0: pads 13-16, Row 1: pads 9-12, Row 2: pads 5-8, Row 3: pads 1-4
+        pad_layout = [
+            [13, 14, 15, 16],  # row 0
+            [9, 10, 11, 12],  # row 1
+            [5, 6, 7, 8],  # row 2
+            [1, 2, 3, 4],  # row 3
+        ]
+        for row, pad_row in enumerate(pad_layout):
+            for col_offset, pad_num in enumerate(pad_row):
                 controls.append(
                     ControlPlacement(
                         control_id=f"pad_{pad_num}@{self._last_active_bank}",
                         widget_type=ControlWidget.PAD,
-                        row=tui_row + 3,  # Offset by 3 for knob rows
-                        col=col,
+                        row=row,
+                        col=2 + col_offset,
                     ),
                 )
 
@@ -1103,8 +1103,8 @@ class AkaiMPD218Plugin(ControllerPlugin):
                 LayoutSection(
                     name="MPD218",
                     controls=controls,
-                    rows=7,  # 3 knob rows + 4 pad rows
-                    cols=4,
+                    rows=4,
+                    cols=6,
                 ),
             ],
         )

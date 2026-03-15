@@ -1068,92 +1068,76 @@ class SynidoTempoPADPlugin(ControllerPlugin):
         return device_config
 
     def get_debug_layout(self) -> DebugLayout:
-        """Return TUI debug layout for Synido TempoPAD P16."""
+        """Return TUI debug layout for Synido TempoPAD P16.
+
+        Physical layout (7 cols × 4 rows):
+        - Cols 0-1: Knobs (2x2 grid, rows 0-1)
+        - Cols 0-2: Buttons (2 rows of 3, rows 2-3)
+        - Cols 3-6: Pads (4x4 grid)
+
+        Knobs:       Pads:
+        3 4          13 14 15 16
+        1 2           9 10 11 12
+        Buttons:      5  6  7  8
+        Back Stop Fwd 1  2  3  4
+        Rec  Play Loop
+        """
         controls = []
         bank_id = self._last_active_bank or "bank_a"
 
-        # 4 knobs (row 0, cols 0-3)
-        for i in range(1, 5):
-            controls.append(
-                ControlPlacement(
-                    control_id=f"knob_{i}@{bank_id}",
-                    widget_type=ControlWidget.KNOB,
-                    row=0,
-                    col=i - 1,
-                    label=f"K{i}",
-                ),
-            )
+        # Knobs (cols 0-1, rows 0-1)
+        # Row 0: knobs 3, 4 | Row 1: knobs 1, 2
+        knob_layout = [
+            [3, 4],  # row 0
+            [1, 2],  # row 1
+        ]
+        for row, knob_row in enumerate(knob_layout):
+            for col, knob_num in enumerate(knob_row):
+                controls.append(
+                    ControlPlacement(
+                        control_id=f"knob_{knob_num}@{bank_id}",
+                        widget_type=ControlWidget.KNOB,
+                        row=row,
+                        col=col,
+                        label=f"K{knob_num}",
+                    ),
+                )
 
-        # Transport buttons (row 0, cols 4-5)
-        controls.append(
-            ControlPlacement(
-                control_id="button_record",
-                widget_type=ControlWidget.BUTTON,
-                row=0,
-                col=4,
-                label="Rec",
-            ),
-        )
-        controls.append(
-            ControlPlacement(
-                control_id="button_play",
-                widget_type=ControlWidget.BUTTON,
-                row=0,
-                col=5,
-                label="Play",
-            ),
-        )
+        # Buttons (cols 0-2, rows 2-3)
+        button_layout = [
+            [("button_back", "Back"), ("button_stop", "Stop"), ("button_forward", "Fwd")],
+            [("button_record", "Rec"), ("button_play", "Play"), ("button_loop", "Loop")],
+        ]
+        for row_offset, button_row in enumerate(button_layout):
+            for col, (btn_id, label) in enumerate(button_row):
+                controls.append(
+                    ControlPlacement(
+                        control_id=btn_id,
+                        widget_type=ControlWidget.BUTTON,
+                        row=2 + row_offset,
+                        col=col,
+                        label=label,
+                    ),
+                )
 
-        # 4×4 pad grid (rows 1-4)
-        for pad_num in range(1, 17):
-            row = 1 + (pad_num - 1) // 4
-            col = (pad_num - 1) % 4
-            controls.append(
-                ControlPlacement(
-                    control_id=f"pad_{pad_num}@{bank_id}",
-                    widget_type=ControlWidget.PAD,
-                    row=row,
-                    col=col,
-                ),
-            )
-
-        # More transport buttons (row 5)
-        controls.append(
-            ControlPlacement(
-                control_id="button_back",
-                widget_type=ControlWidget.BUTTON,
-                row=5,
-                col=0,
-                label="Back",
-            ),
-        )
-        controls.append(
-            ControlPlacement(
-                control_id="button_stop",
-                widget_type=ControlWidget.BUTTON,
-                row=5,
-                col=1,
-                label="Stop",
-            ),
-        )
-        controls.append(
-            ControlPlacement(
-                control_id="button_forward",
-                widget_type=ControlWidget.BUTTON,
-                row=5,
-                col=2,
-                label="Fwd",
-            ),
-        )
-        controls.append(
-            ControlPlacement(
-                control_id="button_loop",
-                widget_type=ControlWidget.BUTTON,
-                row=5,
-                col=3,
-                label="Loop",
-            ),
-        )
+        # Pads (cols 3-6, rows 0-3)
+        # Row 0: pads 13-16, Row 1: pads 9-12, Row 2: pads 5-8, Row 3: pads 1-4
+        pad_layout = [
+            [13, 14, 15, 16],  # row 0
+            [9, 10, 11, 12],  # row 1
+            [5, 6, 7, 8],  # row 2
+            [1, 2, 3, 4],  # row 3
+        ]
+        for row, pad_row in enumerate(pad_layout):
+            for col_offset, pad_num in enumerate(pad_row):
+                controls.append(
+                    ControlPlacement(
+                        control_id=f"pad_{pad_num}@{bank_id}",
+                        widget_type=ControlWidget.PAD,
+                        row=row,
+                        col=3 + col_offset,
+                    ),
+                )
 
         return DebugLayout(
             plugin_name=self.name,
@@ -1162,8 +1146,8 @@ class SynidoTempoPADPlugin(ControllerPlugin):
                 LayoutSection(
                     name=f"TempoPAD - {bank_id}",
                     controls=controls,
-                    rows=6,
-                    cols=6,
+                    rows=4,
+                    cols=7,
                 ),
             ],
         )

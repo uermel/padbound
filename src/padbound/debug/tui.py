@@ -439,8 +439,8 @@ class ControllerStateApp(App):
                 self.notify("No layout in full_state message!", severity="warning")
 
             if msg.states:
-                # Cache states for layout rebuilds
-                self._cached_states = dict(msg.states)
+                # Cache states by base ID (without bank suffix) for cross-bank matching
+                self._cached_states = {k.split("@")[0]: v for k, v in msg.states.items()}
                 # Debug: show fader values
                 fader_states = {k: v.value for k, v in msg.states.items() if k.startswith("fader_")}
                 if fader_states:
@@ -461,8 +461,9 @@ class ControllerStateApp(App):
                 status.update(Text(f"Connected to {self._plugin_name} [{msg.current_bank}]", style="green"))
 
         elif isinstance(msg, StateChangeMessage):
-            # Single control update
-            self._cached_states[msg.control_id] = msg.state  # Cache for layout rebuilds
+            # Single control update - cache by base ID for cross-bank matching
+            base_id = msg.control_id.split("@")[0]
+            self._cached_states[base_id] = msg.state  # Cache for layout rebuilds
             await self._update_control(msg.control_id, msg.state)
 
     async def _build_layout(self, layout: DebugLayout) -> None:
@@ -521,7 +522,9 @@ class ControllerStateApp(App):
                 if col in col_to_placement:
                     placement = col_to_placement[col]
                     widget = self._create_widget(placement, is_last_col=(col == max_col))
-                    self._widgets[placement.control_id] = widget
+                    # Store by base ID (without bank suffix) for cross-bank matching
+                    base_id = placement.control_id.split("@")[0]
+                    self._widgets[base_id] = widget
                     row_widgets.append(widget)
                 else:
                     # Empty placeholder with appropriate size
@@ -585,7 +588,9 @@ class ControllerStateApp(App):
 
     async def _update_control(self, control_id: str, state: ControlState) -> None:
         """Update a single control widget."""
-        widget = self._widgets.get(control_id)
+        # Look up by base ID (without bank suffix) for cross-bank matching
+        base_id = control_id.split("@")[0]
+        widget = self._widgets.get(base_id)
         if not widget:
             return
 
